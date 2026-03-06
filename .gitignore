@@ -1,0 +1,20 @@
+# Binary
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Runtime config (contains secrets)
+runtime_config.json
+
+# Temp files
+*.txt
+*.md
+!README.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
