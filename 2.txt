@@ -1,0 +1,47 @@
+{"time":"2026-03-06T17:58:45.3666977+08:00","level":"INFO","msg":"server listening","addr":":8787"}
+{"time":"2026-03-06T17:59:53.8292942+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T17:59:53.869624+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":false,"input_items":1,"tools":33,"instructions_len":0,"has_reasoning":false}
+{"time":"2026-03-06T17:59:55.6065933+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":false,"input_items":1,"tools":33,"instructions_len":0,"has_reasoning":false}
+{"time":"2026-03-06T17:59:55.6839718+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:59:56 WARN: stripping cache_control from system block
+2026/03/06 17:59:56 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:59:56.4423666+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":60,"instructions_len":14783,"has_reasoning":true}
+{"time":"2026-03-06T17:59:57.5041054+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:59:58 WARN: stripping cache_control from system block
+2026/03/06 17:59:58 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:59:58.3647366+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":60,"instructions_len":14783,"has_reasoning":true}
+{"time":"2026-03-06T18:00:00.3077467+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 18:00:01 WARN: stripping cache_control from system block
+2026/03/06 18:00:01 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:01.6347333+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":60,"instructions_len":14783,"has_reasoning":true}
+2026/03/06 18:00:06 WARN: stripping cache_control from system block
+2026/03/06 18:00:06 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:06.6430188+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":60,"instructions_len":14783,"has_reasoning":true}
+{"time":"2026-03-06T18:00:07.4801577+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 18:00:12 WARN: stripping cache_control from system block
+2026/03/06 18:00:12 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:12.0918084+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":60,"instructions_len":14783,"has_reasoning":true}
+{"time":"2026-03-06T18:00:18.863669+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 18:00:22 WARN: stripping cache_control from system block
+2026/03/06 18:00:22 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:22.3334752+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":60,"instructions_len":14783,"has_reasoning":true}
+{"time":"2026-03-06T18:00:26.9310151+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T18:00:26.9375256+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":false,"input_items":1,"tools":47,"instructions_len":0,"has_reasoning":false}
+{"time":"2026-03-06T18:00:28.2155704+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T18:00:29.885741+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":false,"input_items":1,"tools":47,"instructions_len":0,"has_reasoning":false}
+2026/03/06 18:00:30 WARN: stripping cache_control from system block
+2026/03/06 18:00:30 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:30.5930479+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T18:00:32.1078647+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 18:00:32 WARN: stripping cache_control from system block
+2026/03/06 18:00:32 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:32.967849+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+2026/03/06 18:00:37 WARN: stripping cache_control from system block
+2026/03/06 18:00:37 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:37.1890484+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T18:00:37.2148679+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T18:00:37.6529667+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 18:00:42 WARN: stripping cache_control from system block
+2026/03/06 18:00:42 WARN: stripping cache_control from system block
+{"time":"2026-03-06T18:00:42.70641+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T18:00:44.2464089+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}

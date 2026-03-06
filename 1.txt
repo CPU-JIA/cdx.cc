@@ -1,0 +1,41 @@
+{"time":"2026-03-06T17:23:49.5787076+08:00","level":"INFO","msg":"server listening","addr":":8787"}
+{"time":"2026-03-06T17:24:51.0893871+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T17:24:51.1382736+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":false,"input_items":1,"tools":47,"instructions_len":0,"has_reasoning":false}
+{"time":"2026-03-06T17:24:53.3831706+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":false,"input_items":1,"tools":47,"instructions_len":0,"has_reasoning":false}
+{"time":"2026-03-06T17:24:53.4283807+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:24:54 WARN: stripping cache_control from system block
+2026/03/06 17:24:54 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:24:54.3299958+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:24:55.376868+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:24:55 WARN: stripping cache_control from system block
+2026/03/06 17:24:55 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:24:55.9556017+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+2026/03/06 17:24:58 WARN: stripping cache_control from system block
+2026/03/06 17:24:58 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:24:58.3358274+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:24:59.3908116+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:25:03 WARN: stripping cache_control from system block
+2026/03/06 17:25:03 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:25:03.8153575+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:25:05.0141987+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:25:09 WARN: stripping cache_control from system block
+2026/03/06 17:25:09 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:25:09.3680952+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:25:14.0750602+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T17:25:20.4756792+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:25:20 WARN: stripping cache_control from system block
+2026/03/06 17:25:20 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:25:20.4824431+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:25:21.8141471+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:25:22 WARN: stripping cache_control from system block
+2026/03/06 17:25:22 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:25:22.5179922+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+2026/03/06 17:25:25 WARN: stripping cache_control from system block
+2026/03/06 17:25:25 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:25:25.3016993+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:25:25.9528982+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+{"time":"2026-03-06T17:25:31.0743535+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}
+2026/03/06 17:25:31 WARN: stripping cache_control from system block
+2026/03/06 17:25:31 WARN: stripping cache_control from system block
+{"time":"2026-03-06T17:25:31.2013168+08:00","level":"DEBUG","msg":"outgoing request","model":"gpt-5.4","stream":true,"input_items":1,"tools":74,"instructions_len":14884,"has_reasoning":true}
+{"time":"2026-03-06T17:25:32.5656557+08:00","level":"DEBUG","msg":"outgoing request","model":"claude-haiku-4-5-20251001","stream":true,"input_items":1,"tools":0,"instructions_len":315,"has_reasoning":false}

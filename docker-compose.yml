@@ -1,0 +1,33 @@
+services:
+  claude-bridge:
+    build: .
+    # 或者用预构建镜像:
+    # image: your-registry/claude-bridge:latest
+    ports:
+      - "8787:8787"
+    environment:
+      # 必需：上游 sub2api 地址（同 Docker 网络用服务名）
+      UPSTREAM_BASE_URL: "http://sub2api:3000"
+      UPSTREAM_API_KEY: "sk-your-sub2api-key"
+
+      # 模型映射：表面 Claude 模型 → 实际 GPT 模型 + 推理强度
+      MODEL_MAP: >-
+        claude-opus-4-6=gpt-5.4:xhigh,
+        claude-sonnet-4-6=gpt-5.4:high,
+        claude-haiku-4-5-20251001=gpt-5.4:low
+
+      # 可选配置
+      LOG_LEVEL: "info"
+      UPSTREAM_TIMEOUT_SECS: "300"
+      DISABLE_RESPONSE_STORAGE: "1"
+    restart: unless-stopped
+    # 如果 sub2api 也在同一个 compose 里：
+    # networks:
+    #   - sub2api_default
+    # external_links:
+    #   - sub2api
+
+# 如果 sub2api 在独立 compose 中，需要共享网络：
+# networks:
+#   sub2api_default:
+#     external: true

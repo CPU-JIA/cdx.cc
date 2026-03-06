@@ -1,0 +1,549 @@
+package transform
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+
+	"cdx.cc/claude-bridge/internal/config"
+	"cdx.cc/claude-bridge/internal/sse"
+	"cdx.cc/claude-bridge/internal/types"
+)
+
+type streamState struct {
+	started           bool
+	messageID         string
+	model             string
+	nextIndex         int
+	textIndexByKey    map[string]int
+	toolIndexByItemID map[string]int
+	toolIndexByOutput map[int]int
+	closedIndex       map[int]bool
+	toolUsed          bool
+	thinkingIndex     int  // thinking block 索引，-1 = 未创建
+	thinkingStarted   bool // 是否已发送 thinking content_block_start
+}
+
+func newStreamState() *streamState {
+	return &streamState{
+		textIndexByKey:    make(map[string]int),
+		toolIndexByItemID: make(map[string]int),
+		toolIndexByOutput: make(map[int]int),
+		closedIndex:       make(map[int]bool),
+		thinkingIndex:     -1,
+	}
+}
+
+func BridgeOpenAIStream(ctx context.Context, reader <-chan sse.Event, writer *sse.Writer, mode config.Mode) error {
+	state := newStreamState()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-reader:
+			if !ok {
+				return nil
+			}
+			if err := handleOpenAIEvent(event, state, writer, mode); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, mode config.Mode) error {
+	if len(event.Data) == 0 {
+		return nil
+	}
+
+	// OpenAI 流以 [DONE] 结束，非 JSON，直接跳过
+	if string(event.Data) == "[DONE]" {
+		return nil
+	}
+
+	// Sub2API has inconsistent event names vs data types, so we check the data type field
+	var typeCheck struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(event.Data, &typeCheck); err != nil {
+		log.Printf("WARN: Skipping non-JSON event data: %v, data=%s", err, truncate(event.Data, 200))
+		return nil
+	}
+	if typeCheck.Type != "" {
+		// Override event name with actual data type
+		event.Name = typeCheck.Type
+	}
+
+	switch event.Name {
+	case "response.created", "response.in_progress":
+		meta := struct {
+			Response *types.OpenAIResponse `json:"response"`
+		}{}
+		if err := json.Unmarshal(event.Data, &meta); err != nil {
+			return nil
+		}
+		if meta.Response != nil {
+			state.model = meta.Response.Model
+			state.messageID = "msg_" + meta.Response.ID
+		}
+		return ensureMessageStart(state, writer)
+	case "response.output_item.added":
+		var payload struct {
+			OutputIndex int                    `json:"output_index"`
+			Item        types.OpenAIOutputItem `json:"item"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		switch payload.Item.Type {
+		case "function_call", "custom_tool_call":
+			idx := state.nextIndex
+			state.nextIndex++
+			state.toolIndexByItemID[payload.Item.ID] = idx
+			if payload.OutputIndex >= 0 {
+				state.toolIndexByOutput[payload.OutputIndex] = idx
+			}
+			state.toolUsed = true
+			block := types.AnthropicContentBlock{
+				Type:  "tool_use",
+				ID:    payload.Item.CallID,
+				Name:  payload.Item.Name,
+				Input: mustMarshalRaw(map[string]any{}),
+			}
+			start := types.AnthropicStreamContentBlockStart{
+				Type:         "content_block_start",
+				Index:        idx,
+				ContentBlock: block,
+			}
+			return sendEvent(writer, "content_block_start", start)
+		case "reasoning":
+			// 记录但不立即创建 block（等 delta 到来时创建）
+			return nil
+		case "message":
+			return nil
+		case "web_search_call":
+			// web_search 是上游内部搜索，静默跳过
+			return nil
+		default:
+			if mode == config.ModeStrict {
+				return fmt.Errorf("unsupported output item: %s", payload.Item.Type)
+			}
+		}
+		return nil
+	case "response.content_part.added":
+		var payload struct {
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+			Part         struct {
+				Type string `json:"type"`
+			} `json:"part"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		if payload.Part.Type != "output_text" {
+			return nil
+		}
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)
+		if _, ok := state.textIndexByKey[key]; ok {
+			return nil
+		}
+		idx := state.nextIndex
+		state.nextIndex++
+		state.textIndexByKey[key] = idx
+		return sendTextBlockStart(writer, idx)
+	case "response.output_text.delta":
+		var payload struct {
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+			Delta        string `json:"delta"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			log.Printf("ERROR: Failed to parse output_text.delta: %v, data=%s", err, truncate(event.Data, 200))
+			return err
+		}
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)
+		idx, ok := state.textIndexByKey[key]
+		if !ok {
+			idx = state.nextIndex
+			state.nextIndex++
+			state.textIndexByKey[key] = idx
+			if err := sendTextBlockStart(writer, idx); err != nil {
+				return err
+			}
+		}
+		delta := types.AnthropicStreamContentBlockDelta{
+			Type:  "content_block_delta",
+			Index: idx,
+			Delta: map[string]any{"type": "text_delta", "text": payload.Delta},
+		}
+		return sendEvent(writer, "content_block_delta", delta)
+	case "response.output_text.done":
+		var payload struct {
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)
+		idx, ok := state.textIndexByKey[key]
+		if !ok {
+			return nil
+		}
+		return closeContentBlock(writer, state, idx)
+	case "response.function_call_arguments.delta":
+		var payload struct {
+			ItemID      string `json:"item_id"`
+			OutputIndex int    `json:"output_index"`
+			Delta       string `json:"delta"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		idx, ok := state.toolIndexByItemID[payload.ItemID]
+		if !ok {
+			idx, ok = state.toolIndexByOutput[payload.OutputIndex]
+		}
+		if !ok {
+			if mode == config.ModeStrict {
+				return errors.New("tool arguments delta without tool_use start")
+			}
+			return nil
+		}
+		delta := types.AnthropicStreamContentBlockDelta{
+			Type:  "content_block_delta",
+			Index: idx,
+			Delta: map[string]any{"type": "input_json_delta", "partial_json": payload.Delta},
+		}
+		return sendEvent(writer, "content_block_delta", delta)
+	case "response.function_call_arguments.done":
+		var payload struct {
+			ItemID      string `json:"item_id"`
+			OutputIndex int    `json:"output_index"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		idx, ok := state.toolIndexByItemID[payload.ItemID]
+		if !ok {
+			idx, ok = state.toolIndexByOutput[payload.OutputIndex]
+		}
+		if !ok {
+			return nil
+		}
+		return closeContentBlock(writer, state, idx)
+	case "response.output_item.done":
+		var payload struct {
+			Item types.OpenAIOutputItem `json:"item"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		switch payload.Item.Type {
+		case "function_call", "custom_tool_call":
+			idx, ok := state.toolIndexByItemID[payload.Item.ID]
+			if ok {
+				return closeContentBlock(writer, state, idx)
+			}
+		case "reasoning":
+			// reasoning 完毕 → 发送 signature_delta 然后关闭 thinking block
+			if state.thinkingStarted && state.thinkingIndex >= 0 {
+				return closeThinkingBlock(writer, state)
+			}
+		case "web_search_call":
+			// web_search 完成，静默跳过
+			return nil
+		}
+		return nil
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		// 推理摘要增量 或 推理原文增量 → thinking_delta
+		var payload struct {
+			Delta string `json:"delta"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		// 首次收到 reasoning delta → 创建 thinking content_block
+		if !state.thinkingStarted {
+			if err := startThinkingBlock(state, writer); err != nil {
+				return err
+			}
+		}
+		delta := types.AnthropicStreamContentBlockDelta{
+			Type:  "content_block_delta",
+			Index: state.thinkingIndex,
+			Delta: map[string]any{"type": "thinking_delta", "thinking": payload.Delta},
+		}
+		return sendEvent(writer, "content_block_delta", delta)
+	case "response.reasoning_summary_text.done", "response.reasoning_text.done":
+		// 推理文本完毕 → 发送 signature_delta 然后关闭 thinking block
+		if state.thinkingStarted && state.thinkingIndex >= 0 {
+			return closeThinkingBlock(writer, state)
+		}
+		return nil
+	case "response.reasoning_summary_part.added",
+		"response.reasoning_summary_part.done",
+		"response.reasoning_summary.delta",
+		"response.reasoning_summary.done":
+		// summary part 生命周期事件 → 忽略（由 text delta 驱动）
+		return nil
+	case "response.content_part.done":
+		// 安全网：如果有未关闭的 text block，通过 content_part.done 关闭
+		var payload struct {
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return nil
+		}
+		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)
+		idx, ok := state.textIndexByKey[key]
+		if ok {
+			return closeContentBlock(writer, state, idx)
+		}
+		return nil
+	case "response.refusal.delta":
+		// refusal delta → 转为 text_delta
+		var payload struct {
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+			Delta        string `json:"delta"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)
+		idx, ok := state.textIndexByKey[key]
+		if !ok {
+			idx = state.nextIndex
+			state.nextIndex++
+			state.textIndexByKey[key] = idx
+			if err := sendTextBlockStart(writer, idx); err != nil {
+				return err
+			}
+		}
+		delta := types.AnthropicStreamContentBlockDelta{
+			Type:  "content_block_delta",
+			Index: idx,
+			Delta: map[string]any{"type": "text_delta", "text": payload.Delta},
+		}
+		return sendEvent(writer, "content_block_delta", delta)
+	case "response.refusal.done":
+		// refusal 完毕 → 关闭对应的 text block
+		var payload struct {
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return nil
+		}
+		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)
+		idx, ok := state.textIndexByKey[key]
+		if ok {
+			return closeContentBlock(writer, state, idx)
+		}
+		return nil
+	case "response.web_search_call.in_progress",
+		"response.web_search_call.searching",
+		"response.web_search_call.completed",
+		"response.file_search_call.in_progress",
+		"response.file_search_call.searching",
+		"response.file_search_call.completed",
+		"response.computer_call.in_progress",
+		"response.computer_call.completed",
+		"response.mcp_call.in_progress",
+		"response.mcp_call.completed",
+		"response.mcp_list_tools.in_progress",
+		"response.mcp_list_tools.completed":
+		// 不支持的功能调用事件 → 静默忽略
+		return nil
+	case "response.completed", "response.incomplete", "response.cancelled", "response.failed":
+		var payload struct {
+			Response types.OpenAIResponse `json:"response"`
+		}
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return err
+		}
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		stopReason := deriveStopReason(payload.Response, state.toolUsed)
+		msgDelta := types.AnthropicStreamMessageDelta{
+			Type: "message_delta",
+			Delta: types.AnthropicMessageDelta{
+				StopReason: stopReason,
+			},
+		}
+		if payload.Response.Usage != nil {
+			msgDelta.Usage = &types.AnthropicUsage{
+				InputTokens:  payload.Response.Usage.InputTokens,
+				OutputTokens: payload.Response.Usage.OutputTokens,
+			}
+		}
+		if err := sendEvent(writer, "message_delta", msgDelta); err != nil {
+			return err
+		}
+		stop := types.AnthropicStreamMessageStop{Type: "message_stop"}
+		return sendEvent(writer, "message_stop", stop)
+	case "error":
+		var errPayload struct {
+			Error struct {
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(event.Data, &errPayload); err != nil {
+			return fmt.Errorf("upstream error event")
+		}
+		return fmt.Errorf("%s: %s", errPayload.Error.Type, errPayload.Error.Message)
+	default:
+		log.Printf("WARN: Unhandled event type: %s, data=%s", event.Name, truncate(event.Data, 200))
+		return nil
+	}
+}
+
+func ensureMessageStart(state *streamState, writer *sse.Writer) error {
+	if state.started {
+		return nil
+	}
+	if state.messageID == "" {
+		state.messageID = "msg_stream"
+	}
+	msg := types.AnthropicMessageResponse{
+		ID:      state.messageID,
+		Type:    "message",
+		Role:    "assistant",
+		Content: []types.AnthropicContentBlock{},
+		Model:   state.model,
+		Usage:   types.AnthropicUsage{},
+	}
+	start := types.AnthropicStreamMessageStart{
+		Type:    "message_start",
+		Message: msg,
+	}
+	state.started = true
+	return sendEvent(writer, "message_start", start)
+}
+
+func closeContentBlock(writer *sse.Writer, state *streamState, index int) error {
+	if state.closedIndex[index] {
+		return nil
+	}
+	state.closedIndex[index] = true
+	stop := types.AnthropicStreamContentBlockStop{Type: "content_block_stop", Index: index}
+	return sendEvent(writer, "content_block_stop", stop)
+}
+
+// startThinkingBlock 创建 thinking content_block_start 事件
+// 使用 map 构造 JSON 以确保 "thinking": "" 始终存在（避免 omitempty 丢失）
+func startThinkingBlock(state *streamState, writer *sse.Writer) error {
+	idx := state.nextIndex
+	state.nextIndex++
+	state.thinkingIndex = idx
+	state.thinkingStarted = true
+
+	startData := map[string]any{
+		"type":  "content_block_start",
+		"index": idx,
+		"content_block": map[string]any{
+			"type":     "thinking",
+			"thinking": "",
+		},
+	}
+	data, err := json.Marshal(startData)
+	if err != nil {
+		return err
+	}
+	return writer.Send("content_block_start", data)
+}
+
+// closeThinkingBlock 发送 signature_delta 然后关闭 thinking block
+// signature 占位符让 Claude Code CLI 将 thinking 渲染为折叠 UI
+func closeThinkingBlock(writer *sse.Writer, state *streamState) error {
+	if state.closedIndex[state.thinkingIndex] {
+		return nil
+	}
+	// 发送 signature_delta
+	sigDelta := map[string]any{
+		"type":  "content_block_delta",
+		"index": state.thinkingIndex,
+		"delta": map[string]any{
+			"type":      "signature_delta",
+			"signature": "proxy-bridge-signature-placeholder",
+		},
+	}
+	sigData, err := json.Marshal(sigDelta)
+	if err != nil {
+		return err
+	}
+	if err := writer.Send("content_block_delta", sigData); err != nil {
+		return err
+	}
+	return closeContentBlock(writer, state, state.thinkingIndex)
+}
+
+// sendTextBlockStart 发送 text 类型的 content_block_start 事件
+// 使用 map 构造 JSON 以确保 "text": "" 始终存在（避免 omitempty 丢失）
+func sendTextBlockStart(writer *sse.Writer, idx int) error {
+	startData := map[string]any{
+		"type":  "content_block_start",
+		"index": idx,
+		"content_block": map[string]any{
+			"type": "text",
+			"text": "",
+		},
+	}
+	data, err := json.Marshal(startData)
+	if err != nil {
+		return err
+	}
+	return writer.Send("content_block_start", data)
+}
+
+func sendEvent(writer *sse.Writer, name string, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return writer.Send(name, data)
+}
+
+func contentKey(itemID string, outputIndex, contentIndex int) string {
+	if itemID != "" {
+		return fmt.Sprintf("%s:%d", itemID, contentIndex)
+	}
+	return fmt.Sprintf("out:%d:%d", outputIndex, contentIndex)
+}
+
+func truncate(data []byte, maxLen int) string {
+	if len(data) <= maxLen {
+		return string(data)
+	}
+	return string(data[:maxLen]) + "..."
+}

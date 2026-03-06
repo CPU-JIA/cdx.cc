@@ -1,0 +1,29 @@
+{
+  "upstream": {
+    "base_url": "https://sub.jia4u.de",
+    "api_key": "sk-705662fe1ac0b6af92a0ef9d7b1a7a4579e2aebf48ab563350c5ad516d9e7990"
+  },
+  "models": {
+    "claude-haiku-4-5": {
+      "upstream_model": "gpt-5.4",
+      "reasoning_effort": "medium"
+    },
+    "claude-opus-4-6": {
+      "upstream_model": "gpt-5.4",
+      "reasoning_effort": "xhigh"
+    },
+    "claude-opus-4-6[1m]": {
+      "upstream_model": "gpt-5.4",
+      "reasoning_effort": "xhigh"
+    },
+    "claude-sonnet-4-6": {
+      "upstream_model": "gpt-5.4",
+      "reasoning_effort": "high"
+    },
+    "claude-sonnet-4-6[1m]": {
+      "upstream_model": "gpt-5.4",
+      "reasoning_effort": "high"
+    }
+  },
+  "auth_token": "sk-cdx.cc-019b3dd0fef47e48"
+}

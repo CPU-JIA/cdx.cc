@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Bridge 管理面板</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: #f8f9fa;
+        color: #1a1a1a;
+        line-height: 1.6;
+      }
+      .container {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 24px 20px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 32px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      header h1 {
+        font-size: 20px;
+        font-weight: 600;
+        color: #111;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: #6b7280;
+      }
+      .status .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #d1d5db;
+      }
+      .status .dot.online {
+        background: #22c55e;
+      }
+      .status .dot.error {
+        background: #ef4444;
+      }
+      section {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 24px;
+      }
+      section h2 {
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .form-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .form-row label {
+        width: 80px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #374151;
+        flex-shrink: 0;
+      }
+      .form-row input,
+      .form-row select {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 13px;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+      .form-row input:focus,
+      .form-row select:focus {
+        border-color: #2563eb;
+      }
+      .form-row input[readonly] {
+        background: #f9fafb;
+        color: #374151;
+      }
+      .btn {
+        padding: 7px 16px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background: #fff;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #374151;
+        white-space: nowrap;
+      }
+      .btn:hover {
+        background: #f3f4f6;
+        border-color: #9ca3af;
+      }
+      .btn-primary {
+        background: #2563eb;
+        color: #fff;
+        border-color: #2563eb;
+      }
+      .btn-primary:hover {
+        background: #1d4ed8;
+      }
+      .btn-danger {
+        color: #dc2626;
+        border-color: #fecaca;
+      }
+      .btn-danger:hover {
+        background: #fef2f2;
+      }
+      .btn-sm {
+        padding: 4px 10px;
+        font-size: 12px;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 16px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      thead th {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 2px solid #e5e7eb;
+        font-weight: 600;
+        color: #374151;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      tbody td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #f3f4f6;
+        vertical-align: middle;
+      }
+      tbody tr:hover {
+        background: #f9fafb;
+      }
+      td input,
+      td select {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        font-size: 13px;
+        background: #fff;
+      }
+      td select {
+        cursor: pointer;
+      }
+      td input:focus,
+      td select:focus {
+        outline: none;
+        border-color: #2563eb;
+      }
+      .toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        color: #fff;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        z-index: 100;
+      }
+      .toast.success {
+        background: #22c55e;
+      }
+      .toast.error {
+        background: #ef4444;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+      .empty-hint {
+        text-align: center;
+        padding: 20px;
+        color: #9ca3af;
+        font-size: 13px;
+      }
+      .snippet-tabs {
+        display: flex;
+        gap: 0;
+        margin-top: 12px;
+        margin-bottom: 0;
+      }
+      .snippet-tab {
+        padding: 6px 16px;
+        font-size: 12px;
+        border: 1px solid #d1d5db;
+        background: #f9fafb;
+        cursor: pointer;
+        color: #6b7280;
+        border-bottom: none;
+        position: relative;
+        top: 1px;
+      }
+      .snippet-tab:first-child {
+        border-radius: 6px 0 0 0;
+      }
+      .snippet-tab:last-child {
+        border-radius: 0 6px 0 0;
+      }
+      .snippet-tab.active {
+        background: #fff;
+        color: #111;
+        font-weight: 600;
+        border-bottom-color: #fff;
+      }
+      .snippet-box {
+        background: #fff;
+        border: 1px solid #d1d5db;
+        border-radius: 0 6px 6px 6px;
+        padding: 16px;
+        padding-right: 70px;
+        position: relative;
+      }
+      .snippet-box code {
+        display: block;
+        font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: #374151;
+      }
+      .snippet-box .copy-float {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+      }
+      .sub-label {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Claude Bridge 管理面板</h1>
+        <div class="status">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">连接中...</span>
+        </div>
+      </header>
+
+      <!-- 上游配置 -->
+      <section>
+        <h2>上游配置</h2>
+        <div class="form-row">
+          <label>Base URL</label>
+          <input
+            type="text"
+            id="baseUrl"
+            placeholder="https://api.openai.com"
+          />
+        </div>
+        <div class="form-row">
+          <label>API Key</label>
+          <input type="password" id="apiKey" placeholder="sk-..." />
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="btnSaveUpstream">保存</button>
+        </div>
+      </section>
+
+      <!-- 模型映射 -->
+      <section>
+        <h2>
+          模型映射
+          <button class="btn btn-sm" id="btnRefreshModels">刷新模型列表</button>
+        </h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%">入站模型</th>
+              <th style="width: 25%">上游模型</th>
+              <th style="width: 16%">推理强度</th>
+              <th style="width: 16%">Fast推理</th>
+              <th style="width: 15%"></th>
+            </tr>
+          </thead>
+          <tbody id="modelRows"></tbody>
+        </table>
+        <div id="emptyHint" class="empty-hint">
+          暂无映射规则，点击下方按钮添加
+        </div>
+        <div class="actions">
+          <button class="btn" id="btnAddRow">+ 添加映射</button>
+          <button class="btn btn-primary" id="btnSaveModels">
+            保存模型映射
+          </button>
+        </div>
+      </section>
+
+      <!-- 连接配置 -->
+      <section>
+        <h2>连接配置</h2>
+        <div class="form-row">
+          <label>Auth Token</label>
+          <input type="text" id="authToken" readonly />
+          <button class="btn btn-sm" id="btnCopyToken">复制</button>
+          <button class="btn btn-sm" id="btnGenToken">生成新密钥</button>
+        </div>
+        <p class="sub-label" style="margin-left: 92px; margin-bottom: 16px">
+          Claude Code 连接本 Bridge 使用的密钥，自动生成
+        </p>
+
+        <div class="snippet-tabs">
+          <div class="snippet-tab active" data-tab="bash">Bash / Zsh</div>
+          <div class="snippet-tab" data-tab="powershell">PowerShell</div>
+          <div class="snippet-tab" data-tab="json">settings.json</div>
+        </div>
+        <div class="snippet-box" id="snippetBox">
+          <button class="btn btn-sm copy-float" id="btnCopySnippet">
+            复制
+          </button>
+          <code id="snippetCode"></code>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var EFFORTS = ["", "none", "low", "medium", "high", "xhigh"];
+        var EFFORT_LABELS = [
+          "(不覆盖)",
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+        ];
+        var INBOUND_PRESETS = [
+          "claude-opus-4-6",
+          "claude-opus-4-6[1m]",
+          "claude-sonnet-4-6",
+          "claude-sonnet-4-6[1m]",
+          "claude-haiku-4-5",
+        ];
+        // 入站模型 → 推荐推理强度
+        var PRESET_EFFORT = {
+          "claude-opus-4-6": "xhigh",
+          "claude-opus-4-6[1m]": "xhigh",
+          "claude-sonnet-4-6": "high",
+          "claude-sonnet-4-6[1m]": "high",
+          "claude-haiku-4-5": "low",
+        };
+        // 入站模型 → 推荐 fast 推理强度（保持不变，fast 只是更快推理）
+        var PRESET_FAST_EFFORT = {
+          "claude-opus-4-6": "xhigh",
+          "claude-opus-4-6[1m]": "xhigh",
+          "claude-sonnet-4-6": "high",
+          "claude-sonnet-4-6[1m]": "high",
+          "claude-haiku-4-5": "low",
+        };
+        var upstreamModels = [];
+        var originalApiKey = "";
+        var currentAuthToken = "";
+        var currentTab = "bash";
+
+        function $(id) {
+          return document.getElementById(id);
+        }
+
+        function toast(msg, type) {
+          var el = $("toast");
+          el.textContent = msg;
+          el.className = "toast " + type + " show";
+          setTimeout(function () {
+            el.classList.remove("show");
+          }, 2500);
+        }
+
+        // 复制到剪贴板
+        function copyText(text) {
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () {
+              toast("已复制", "success");
+            });
+          } else {
+            toast("复制失败：浏览器不支持", "error");
+          }
+        }
+
+        // 安全创建 option 元素
+        function createOption(value, label, selected) {
+          var opt = document.createElement("option");
+          opt.value = value;
+          opt.textContent = label;
+          if (selected) opt.selected = true;
+          return opt;
+        }
+
+        // 填充入站模型下拉框
+        function populateInboundSelect(sel, selectedValue) {
+          while (sel.firstChild) sel.removeChild(sel.firstChild);
+          sel.appendChild(createOption("", "(手动输入)", false));
+          for (var i = 0; i < INBOUND_PRESETS.length; i++) {
+            sel.appendChild(
+              createOption(
+                INBOUND_PRESETS[i],
+                INBOUND_PRESETS[i],
+                INBOUND_PRESETS[i] === selectedValue,
+              ),
+            );
+          }
+        }
+
+        // 填充上游模型下拉框
+        function populateModelSelect(sel, selectedValue) {
+          while (sel.firstChild) sel.removeChild(sel.firstChild);
+          sel.appendChild(createOption("", "(手动输入)", false));
+          for (var i = 0; i < upstreamModels.length; i++) {
+            sel.appendChild(
+              createOption(
+                upstreamModels[i],
+                upstreamModels[i],
+                upstreamModels[i] === selectedValue,
+              ),
+            );
+          }
+        }
+
+        // 填充推理强度下拉框
+        function populateEffortSelect(sel, selectedValue) {
+          while (sel.firstChild) sel.removeChild(sel.firstChild);
+          for (var i = 0; i < EFFORTS.length; i++) {
+            sel.appendChild(
+              createOption(
+                EFFORTS[i],
+                EFFORT_LABELS[i],
+                EFFORTS[i] === selectedValue,
+              ),
+            );
+          }
+        }
+
+        function toggleEmpty() {
+          $("emptyHint").style.display = $("modelRows").children.length
+            ? "none"
+            : "block";
+        }
+
+        // 创建 select + manual input 组合控件
+        function createComboField(
+          className,
+          options,
+          populateFn,
+          selectedValue,
+        ) {
+          var wrapper = document.createDocumentFragment();
+          var sel = document.createElement("select");
+          sel.className = className;
+          populateFn(sel, selectedValue);
+
+          var inp = document.createElement("input");
+          inp.type = "text";
+          inp.className = className + "-manual";
+          inp.placeholder = "输入模型名";
+          inp.style.display = "none";
+
+          // 值不在列表中 → 手动模式
+          if (selectedValue && sel.value !== selectedValue) {
+            sel.value = "";
+            sel.style.display = "none";
+            inp.value = selectedValue;
+            inp.style.display = "";
+          }
+
+          sel.addEventListener("change", function () {
+            if (this.value === "") {
+              this.style.display = "none";
+              inp.style.display = "";
+              inp.focus();
+            }
+          });
+
+          wrapper.appendChild(sel);
+          wrapper.appendChild(inp);
+          return { fragment: wrapper, select: sel, input: inp };
+        }
+
+        // 从 combo 控件读取值
+        function readComboValue(td, className) {
+          var sel = td.querySelector("." + className);
+          var manual = td.querySelector("." + className + "-manual");
+          var val = sel.value;
+          if (!val && manual) val = manual.value.trim();
+          return val;
+        }
+
+        function addRow(inbound, upstream, effort, fastEffort) {
+          inbound = inbound || "";
+          upstream = upstream || "";
+          effort = effort || "";
+          fastEffort = fastEffort || "";
+
+          var tbody = $("modelRows");
+          var tr = document.createElement("tr");
+
+          // 入站模型列（下拉 + 手动输入）
+          var td1 = document.createElement("td");
+          var inboundCombo = createComboField(
+            "m-inbound",
+            INBOUND_PRESETS,
+            populateInboundSelect,
+            inbound,
+          );
+          td1.appendChild(inboundCombo.fragment);
+          tr.appendChild(td1);
+
+          // 上游模型列（下拉 + 手动输入）
+          var td2 = document.createElement("td");
+          var upstreamCombo = createComboField(
+            "m-upstream",
+            upstreamModels,
+            populateModelSelect,
+            upstream,
+          );
+          td2.appendChild(upstreamCombo.fragment);
+          tr.appendChild(td2);
+
+          // 推理强度列
+          var td3 = document.createElement("td");
+          var selEffort = document.createElement("select");
+          selEffort.className = "m-effort";
+          populateEffortSelect(selEffort, effort);
+          td3.appendChild(selEffort);
+          tr.appendChild(td3);
+
+          // Fast 推理强度列
+          var td3b = document.createElement("td");
+          var selFastEffort = document.createElement("select");
+          selFastEffort.className = "m-fast-effort";
+          populateEffortSelect(selFastEffort, fastEffort);
+          td3b.appendChild(selFastEffort);
+          tr.appendChild(td3b);
+
+          // 入站模型选择联动：自动设置推荐推理强度
+          inboundCombo.select.addEventListener("change", function () {
+            var preset = PRESET_EFFORT[this.value];
+            if (preset && !effort) {
+              selEffort.value = preset;
+            }
+            var fastPreset = PRESET_FAST_EFFORT[this.value];
+            if (fastPreset && !fastEffort) {
+              selFastEffort.value = fastPreset;
+            }
+          });
+
+          // 删除按钮列
+          var td4 = document.createElement("td");
+          td4.style.textAlign = "center";
+          var btnDel = document.createElement("button");
+          btnDel.className = "btn btn-danger btn-sm";
+          btnDel.textContent = "删除";
+          btnDel.addEventListener("click", function () {
+            tr.remove();
+            toggleEmpty();
+          });
+          td4.appendChild(btnDel);
+          tr.appendChild(td4);
+
+          tbody.appendChild(tr);
+          toggleEmpty();
+        }
+
+        function getModelRows() {
+          var models = {};
+          var rows = $("modelRows").querySelectorAll("tr");
+          for (var i = 0; i < rows.length; i++) {
+            var tr = rows[i];
+            var inbound = readComboValue(tr.children[0], "m-inbound");
+            if (!inbound) continue;
+            var upstream = readComboValue(tr.children[1], "m-upstream");
+            if (!upstream) continue;
+            var effort = tr.querySelector(".m-effort").value;
+            var fastEffort = tr.querySelector(".m-fast-effort").value;
+            models[inbound] = { upstream_model: upstream };
+            if (effort) models[inbound].reasoning_effort = effort;
+            if (fastEffort) models[inbound].fast_reasoning_effort = fastEffort;
+          }
+          return models;
+        }
+
+        // 生成连接配置代码片段
+        function renderSnippet() {
+          var bridgeUrl = location.protocol + "//" + location.host;
+          var code = $("snippetCode");
+          var text = "";
+
+          if (currentTab === "bash") {
+            text =
+              "# 添加到 ~/.bashrc 或 ~/.zshrc\n" +
+              'export ANTHROPIC_AUTH_TOKEN="' +
+              currentAuthToken +
+              '"\n' +
+              'export ANTHROPIC_BASE_URL="' +
+              bridgeUrl +
+              '"\n' +
+              "# 可选：指定默认模型（须与左侧入站模型名一致）\n" +
+              '# export ANTHROPIC_MODEL="claude-sonnet-4-6"';
+          } else if (currentTab === "powershell") {
+            text =
+              "# 添加到 $PROFILE 或在终端中执行\n" +
+              '$env:ANTHROPIC_AUTH_TOKEN = "' +
+              currentAuthToken +
+              '"\n' +
+              '$env:ANTHROPIC_BASE_URL = "' +
+              bridgeUrl +
+              '"\n' +
+              "# 可选：指定默认模型\n" +
+              '# $env:ANTHROPIC_MODEL = "claude-sonnet-4-6"';
+          } else {
+            text =
+              "// Claude Code settings.json\n" +
+              "{\n" +
+              '  "env": {\n' +
+              '    "ANTHROPIC_AUTH_TOKEN": "' +
+              currentAuthToken +
+              '",\n' +
+              '    "ANTHROPIC_BASE_URL": "' +
+              bridgeUrl +
+              '"\n' +
+              "  }\n" +
+              "}";
+          }
+
+          code.textContent = text;
+        }
+
+        function loadConfig() {
+          fetch("/admin/api/config")
+            .then(function (resp) {
+              if (!resp.ok) throw new Error("HTTP " + resp.status);
+              return resp.json();
+            })
+            .then(function (data) {
+              $("baseUrl").value = data.upstream.base_url || "";
+              originalApiKey = data.upstream.api_key || "";
+              $("apiKey").value = originalApiKey;
+              $("apiKey").placeholder = originalApiKey
+                ? "(已配置，输入新值覆盖)"
+                : "sk-...";
+
+              // Auth Token
+              currentAuthToken = data.auth_token || "";
+              $("authToken").value = currentAuthToken;
+              renderSnippet();
+
+              // 清空并重新渲染模型映射
+              var tbody = $("modelRows");
+              while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+              if (data.models) {
+                var keys = Object.keys(data.models);
+                for (var i = 0; i < keys.length; i++) {
+                  var v = data.models[keys[i]];
+                  addRow(
+                    keys[i],
+                    v.upstream_model,
+                    v.reasoning_effort || "",
+                    v.fast_reasoning_effort || "",
+                  );
+                }
+              }
+              toggleEmpty();
+            })
+            .catch(function (e) {
+              toast("加载配置失败: " + e.message, "error");
+            });
+        }
+
+        function loadStatus() {
+          fetch("/admin/api/status")
+            .then(function (resp) {
+              if (!resp.ok) throw new Error("HTTP " + resp.status);
+              return resp.json();
+            })
+            .then(function (data) {
+              $("statusDot").className = "dot online";
+              $("statusText").textContent = "运行中 · " + data.uptime;
+            })
+            .catch(function () {
+              $("statusDot").className = "dot error";
+              $("statusText").textContent = "连接失败";
+            });
+        }
+
+        function refreshModels() {
+          fetch("/admin/api/models")
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              return resp.json();
+            })
+            .then(function (data) {
+              upstreamModels = data.models || [];
+              toast("已获取 " + upstreamModels.length + " 个模型", "success");
+              // 更新所有上游模型下拉框，保留已选值
+              var selects = document.querySelectorAll(".m-upstream");
+              for (var i = 0; i < selects.length; i++) {
+                var sel = selects[i];
+                if (sel.style.display === "none") continue;
+                var cur = sel.value;
+                populateModelSelect(sel, cur);
+              }
+            })
+            .catch(function (e) {
+              toast("获取模型列表失败: " + e.message, "error");
+            });
+        }
+
+        function saveUpstream() {
+          var baseUrl = $("baseUrl").value.trim();
+          var apiKey = $("apiKey").value.trim();
+          if (!baseUrl) {
+            toast("Base URL 不能为空", "error");
+            return;
+          }
+
+          var body = {
+            upstream: {
+              base_url: baseUrl,
+              api_key: apiKey === originalApiKey ? "" : apiKey,
+            },
+          };
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("上游配置已保存", "success");
+              loadConfig();
+            })
+            .catch(function (e) {
+              toast("保存失败: " + e.message, "error");
+            });
+        }
+
+        function saveModels() {
+          var models = getModelRows();
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ models: models }),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("模型映射已保存", "success");
+              loadConfig();
+            })
+            .catch(function (e) {
+              toast("保存失败: " + e.message, "error");
+            });
+        }
+
+        function generateNewToken() {
+          var arr = new Uint8Array(8);
+          crypto.getRandomValues(arr);
+          var hex = "";
+          for (var i = 0; i < arr.length; i++) {
+            hex += arr[i].toString(16).padStart(2, "0");
+          }
+          var newToken = "sk-cdx.cc-" + hex;
+
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ auth_token: newToken }),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("新密钥已生成，请更新 Claude Code 配置", "success");
+              loadConfig();
+            })
+            .catch(function (e) {
+              toast("生成失败: " + e.message, "error");
+            });
+        }
+
+        // Tab 切换
+        var tabs = document.querySelectorAll(".snippet-tab");
+        for (var i = 0; i < tabs.length; i++) {
+          tabs[i].addEventListener("click", function () {
+            for (var j = 0; j < tabs.length; j++)
+              tabs[j].classList.remove("active");
+            this.classList.add("active");
+            currentTab = this.getAttribute("data-tab");
+            renderSnippet();
+          });
+        }
+
+        // 绑定事件
+        $("btnSaveUpstream").addEventListener("click", saveUpstream);
+        $("btnRefreshModels").addEventListener("click", refreshModels);
+        $("btnAddRow").addEventListener("click", function () {
+          addRow();
+        });
+        $("btnSaveModels").addEventListener("click", saveModels);
+        $("btnCopyToken").addEventListener("click", function () {
+          copyText(currentAuthToken);
+        });
+        $("btnGenToken").addEventListener("click", generateNewToken);
+        $("btnCopySnippet").addEventListener("click", function () {
+          copyText($("snippetCode").textContent);
+        });
+
+        // 初始化
+        loadStatus();
+        loadConfig();
+        refreshModels();
+        setInterval(loadStatus, 30000);
+      })();
+    </script>
+  </body>
+</html>
