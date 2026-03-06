@@ -62,6 +62,9 @@ func (s *Server) Router() http.Handler {
 	r.Get("/health", s.handleHealth)
 	r.Post("/v1/messages", s.handleMessages)
 
+	// Claude Code /fast 模式需要此端点返回 enabled 状态
+	r.Get("/api/claude_code_penguin_mode", s.handlePenguinMode)
+
 	// 注册管理面板路由
 	adminHandler := admin.NewHandler(s.rtCfg, s.upstream, s.log)
 	adminHandler.Register(r)
@@ -79,6 +82,12 @@ func (s *Server) Close() error {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+func (s *Server) handlePenguinMode(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"enabled":true}`))
 }
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
