@@ -8,13 +8,22 @@
 # Runtime config (contains secrets)
 runtime_config.json
 
-# Temp files
-*.txt
-*.md
-!README.md
+# Logs
+bridge.log
+*.log
+
+# Claude Code worktrees and project data
+.claude/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+
+# Ace tool index
+.ace-tool/
+
+# OS
+.DS_Store
+Thumbs.db

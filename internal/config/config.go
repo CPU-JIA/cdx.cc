@@ -16,17 +16,17 @@ const (
 )
 
 const (
-	defaultListenAddr  = ":8787"
-	defaultTimeoutSecs = 120
-	defaultMaxBodyMB   = 10
-	defaultLogLevel    = "info"
+	defaultListenAddr      = ":8787"
+	defaultTimeoutSecs     = 120
+	defaultMaxBodyMB       = 10
+	defaultLogLevel        = "info"
+	defaultUpstreamBaseURL = "https://api.openai.com"
 )
 
 // ModelMapping 定义一条模型映射规则
 type ModelMapping struct {
-	UpstreamModel       string `json:"upstream_model"`                  // 实际发给上游的模型名
-	ReasoningEffort     string `json:"reasoning_effort,omitempty"`      // 覆盖推理强度（空 = 不覆盖，由 thinking 参数决定）
-	FastReasoningEffort string `json:"fast_reasoning_effort,omitempty"` // /fast 模式下的推理强度（空 = 使用默认降级策略）
+	UpstreamModel   string `json:"upstream_model"`             // 实际发给上游的模型名
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // 覆盖推理强度（空 = 不覆盖，由 thinking 参数决定）
 }
 
 type Config struct {
@@ -52,7 +52,7 @@ func Load() (Config, error) {
 
 	baseURL := strings.TrimSpace(os.Getenv("UPSTREAM_BASE_URL"))
 	if baseURL == "" {
-		return Config{}, errors.New("UPSTREAM_BASE_URL is required")
+		baseURL = defaultUpstreamBaseURL
 	}
 	cfg.UpstreamBaseURL = strings.TrimRight(baseURL, "/")
 

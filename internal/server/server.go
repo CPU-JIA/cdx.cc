@@ -61,6 +61,7 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/health", s.handleHealth)
 	r.Post("/v1/messages", s.handleMessages)
+	r.Post("/v1/messages/count_tokens", s.handleCountTokens)
 
 	// Claude Code /fast 模式需要此端点返回 enabled 状态
 	r.Get("/api/claude_code_penguin_mode", s.handlePenguinMode)
@@ -82,6 +83,31 @@ func (s *Server) Close() error {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+// handleCountTokens 估算 input token 数量
+// CC 依赖此端点管理上下文窗口、/context 命令和 cost 计算
+func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) {
+	if !s.validateAuth(r) {
+		s.writeError(w, http.StatusUnauthorized, errors.New("invalid or missing auth token"))
+		return
+	}
+
+	body, err := s.readBody(w, r)
+	if err != nil {
+		s.writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	// 估算 token 数：JSON 字节数 / 4（英文约 4 字符/token，中文约 2 字符/token，取中间值）
+	estimated := len(body) / 3
+	if estimated < 1 {
+		estimated = 1
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]int{"input_tokens": estimated})
 }
 
 func (s *Server) handlePenguinMode(w http.ResponseWriter, r *http.Request) {
@@ -130,14 +156,14 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if req.Stream {
-		s.handleStream(ctx, w, r, oaReq)
+		s.handleStream(ctx, w, r, oaReq, req.Model, len(body))
 		return
 	}
 
-	s.handleNonStream(ctx, w, r, oaReq)
+	s.handleNonStream(ctx, w, r, oaReq, req.Model)
 }
 
-func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest) {
+func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest, requestModel string) {
 	headers := s.forwardHeaders(r)
 	resp, data, err := s.upstream.DoJSON(ctx, "/v1/responses", oaReq, headers)
 	if err != nil {
@@ -155,7 +181,7 @@ func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *
 		return
 	}
 
-	anthResp, err := transform.TransformOpenAIToAnthropic(oaResp, s.mode)
+	anthResp, err := transform.TransformOpenAIToAnthropic(oaResp, s.mode, requestModel)
 	if err != nil {
 		s.writeError(w, http.StatusBadGateway, err)
 		return
@@ -176,7 +202,7 @@ func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *
 	}
 }
 
-func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest) {
+func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest, requestModel string, requestBodyLen int) {
 	headers := s.forwardHeaders(r)
 	oaReq.Stream = true
 
@@ -195,8 +221,12 @@ func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 
 	// 流式模式：header 必须在第一次 write 前设置
-	// 此时不知道实际 token 用量，使用估算值（Claude Code 主要依赖 limit 值计算上下文窗口）
-	s.setAnthropicHeaders(w, 0, 0)
+	// 使用请求体大小估算 input token 数
+	estimatedInputTokens := requestBodyLen / 3
+	if estimatedInputTokens < 1 {
+		estimatedInputTokens = 1
+	}
+	s.setAnthropicHeaders(w, estimatedInputTokens, 0)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -207,7 +237,7 @@ func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *htt
 	events, errs := sse.Read(resp.Body)
 	defer resp.Body.Close()
 
-	bridgeErr := transform.BridgeOpenAIStream(ctx, events, writer, s.mode)
+	bridgeErr := transform.BridgeOpenAIStream(ctx, events, writer, s.mode, requestModel, estimatedInputTokens)
 	s.log.Debug("stream bridge finished", slog.Any("err", bridgeErr))
 	if bridgeErr != nil && !errors.Is(bridgeErr, context.Canceled) {
 		s.log.Error("stream bridge error", slog.Any("err", bridgeErr))

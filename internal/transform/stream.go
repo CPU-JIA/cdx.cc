@@ -12,18 +12,26 @@ import (
 	"cdx.cc/claude-bridge/internal/types"
 )
 
+type webSearchInfo struct {
+	toolUseID     string
+	resultEmitted bool
+}
+
 type streamState struct {
-	started           bool
-	messageID         string
-	model             string
-	nextIndex         int
-	textIndexByKey    map[string]int
-	toolIndexByItemID map[string]int
-	toolIndexByOutput map[int]int
-	closedIndex       map[int]bool
-	toolUsed          bool
-	thinkingIndex     int  // thinking block 索引，-1 = 未创建
-	thinkingStarted   bool // 是否已发送 thinking content_block_start
+	started              bool
+	messageID            string
+	model                string
+	nextIndex            int
+	textIndexByKey       map[string]int
+	toolIndexByItemID    map[string]int
+	toolIndexByOutput    map[int]int
+	closedIndex          map[int]bool
+	toolUsed             bool
+	thinkingIndex        int  // thinking block 索引，-1 = 未创建
+	thinkingStarted      bool // 是否已发送 thinking content_block_start
+	webSearchByItemID    map[string]*webSearchInfo
+	webSearchByOutIdx    map[int]*webSearchInfo
+	estimatedInputTokens int // 估算的 input token 数
 }
 
 func newStreamState() *streamState {
@@ -33,11 +41,15 @@ func newStreamState() *streamState {
 		toolIndexByOutput: make(map[int]int),
 		closedIndex:       make(map[int]bool),
 		thinkingIndex:     -1,
+		webSearchByItemID: make(map[string]*webSearchInfo),
+		webSearchByOutIdx: make(map[int]*webSearchInfo),
 	}
 }
 
-func BridgeOpenAIStream(ctx context.Context, reader <-chan sse.Event, writer *sse.Writer, mode config.Mode) error {
+func BridgeOpenAIStream(ctx context.Context, reader <-chan sse.Event, writer *sse.Writer, mode config.Mode, requestModel string, estimatedInputTokens int) error {
 	state := newStreamState()
+	state.model = requestModel
+	state.estimatedInputTokens = estimatedInputTokens
 
 	for {
 		select {
@@ -86,7 +98,7 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 			return nil
 		}
 		if meta.Response != nil {
-			state.model = meta.Response.Model
+			// model 保持请求时的原始 Claude 模型名，不被上游覆盖
 			state.messageID = "msg_" + meta.Response.ID
 		}
 		return ensureMessageStart(state, writer)
@@ -128,7 +140,12 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 		case "message":
 			return nil
 		case "web_search_call":
-			// web_search 是上游内部搜索，静默跳过
+			// added 事件中没有 action 字段，只注册，不发射
+			ws := &webSearchInfo{toolUseID: "srvtoolu_" + payload.Item.ID}
+			state.webSearchByItemID[payload.Item.ID] = ws
+			if payload.OutputIndex >= 0 {
+				state.webSearchByOutIdx[payload.OutputIndex] = ws
+			}
 			return nil
 		default:
 			if mode == config.ModeStrict {
@@ -267,8 +284,7 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 				return closeThinkingBlock(writer, state)
 			}
 		case "web_search_call":
-			// web_search 完成，静默跳过
-			return nil
+			return handleWebSearchDone(state, writer, payload.Item)
 		}
 		return nil
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
@@ -368,9 +384,13 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 			return closeContentBlock(writer, state, idx)
 		}
 		return nil
+	case "response.web_search_call.completed":
+		if err := ensureMessageStart(state, writer); err != nil {
+			return err
+		}
+		return handleWebSearchCompleted(state, writer, event.Data)
 	case "response.web_search_call.in_progress",
 		"response.web_search_call.searching",
-		"response.web_search_call.completed",
 		"response.file_search_call.in_progress",
 		"response.file_search_call.searching",
 		"response.file_search_call.completed",
@@ -441,7 +461,7 @@ func ensureMessageStart(state *streamState, writer *sse.Writer) error {
 		Role:    "assistant",
 		Content: []types.AnthropicContentBlock{},
 		Model:   state.model,
-		Usage:   types.AnthropicUsage{},
+		Usage:   types.AnthropicUsage{InputTokens: state.estimatedInputTokens},
 	}
 	start := types.AnthropicStreamMessageStart{
 		Type:    "message_start",
@@ -546,4 +566,90 @@ func truncate(data []byte, maxLen int) string {
 		return string(data)
 	}
 	return string(data[:maxLen]) + "..."
+}
+
+// handleWebSearchCompleted 处理搜索完成事件（由 output_item.done 统一处理，此处空实现）
+func handleWebSearchCompleted(state *streamState, writer *sse.Writer, eventData []byte) error {
+	return nil
+}
+
+// handleWebSearchDone 处理 web_search_call 完成 → 发射 server_tool_use + web_search_tool_result
+// output_item.done 是唯一携带完整 action（含 query）的事件
+func handleWebSearchDone(state *streamState, writer *sse.Writer, item types.OpenAIOutputItem) error {
+	ws := state.webSearchByItemID[item.ID]
+	if ws == nil {
+		ws = &webSearchInfo{toolUseID: "srvtoolu_" + item.ID}
+		state.webSearchByItemID[item.ID] = ws
+	}
+	if ws.resultEmitted {
+		return nil
+	}
+	ws.resultEmitted = true
+
+	// 解析搜索查询
+	var action struct {
+		Query string `json:"query"`
+	}
+	if len(item.Action) > 0 {
+		_ = json.Unmarshal(item.Action, &action)
+	}
+
+	// 1. 发射 server_tool_use（先 start 带空 input，再用 input_json_delta 发送查询）
+	idx1 := state.nextIndex
+	state.nextIndex++
+	startData := map[string]any{
+		"type":  "content_block_start",
+		"index": idx1,
+		"content_block": map[string]any{
+			"type":  "server_tool_use",
+			"id":    ws.toolUseID,
+			"name":  "web_search",
+			"input": map[string]any{},
+		},
+	}
+	data, _ := json.Marshal(startData)
+	if err := writer.Send("content_block_start", data); err != nil {
+		return err
+	}
+	// 发送 input_json_delta（匹配 Anthropic 原生流式行为）
+	inputJSON, _ := json.Marshal(map[string]string{"query": action.Query})
+	inputDelta := map[string]any{
+		"type":  "content_block_delta",
+		"index": idx1,
+		"delta": map[string]any{
+			"type":         "input_json_delta",
+			"partial_json": string(inputJSON),
+		},
+	}
+	deltaData, _ := json.Marshal(inputDelta)
+	if err := writer.Send("content_block_delta", deltaData); err != nil {
+		return err
+	}
+	if err := closeContentBlock(writer, state, idx1); err != nil {
+		return err
+	}
+
+	// 2. 发射 web_search_tool_result
+	return emitWebSearchResult(state, writer, ws)
+}
+
+// emitWebSearchResult 发射 web_search_tool_result content_block
+func emitWebSearchResult(state *streamState, writer *sse.Writer, ws *webSearchInfo) error {
+	idx := state.nextIndex
+	state.nextIndex++
+
+	startData := map[string]any{
+		"type":  "content_block_start",
+		"index": idx,
+		"content_block": map[string]any{
+			"type":        "web_search_tool_result",
+			"tool_use_id": ws.toolUseID,
+			"content":     []any{},
+		},
+	}
+	data, _ := json.Marshal(startData)
+	if err := writer.Send("content_block_start", data); err != nil {
+		return err
+	}
+	return closeContentBlock(writer, state, idx)
 }

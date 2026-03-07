@@ -3,8 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Claude Bridge 管理面板</title>
+    <title>cdx.cc - Codex in Claude Code</title>
     <style>
+      :root {
+        --bg: #f8f9fa;
+        --surface: #fff;
+        --border: #e5e7eb;
+        --border-light: #f3f4f6;
+        --text: #1a1a1a;
+        --text-secondary: #374151;
+        --text-muted: #6b7280;
+        --text-hint: #9ca3af;
+        --input-bg: #fff;
+        --input-readonly-bg: #f9fafb;
+        --hover-bg: #f9fafb;
+        --btn-bg: #fff;
+        --btn-hover-bg: #f3f4f6;
+        --btn-border: #d1d5db;
+        --btn-hover-border: #9ca3af;
+        --accent: #2563eb;
+        --accent-hover: #1d4ed8;
+        --danger: #dc2626;
+        --danger-bg: #fef2f2;
+        --danger-border: #fecaca;
+        --success: #22c55e;
+        --error: #ef4444;
+        --tab-bg: #f9fafb;
+        --tab-active-bg: #fff;
+        --snippet-bg: #fff;
+        --snippet-text: #374151;
+        --code-font: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      [data-theme="dark"] {
+        --bg: #0d0d0d;
+        --surface: #141414;
+        --border: #262626;
+        --border-light: #1e1e1e;
+        --text: #d4d4d4;
+        --text-secondary: #aaa;
+        --text-muted: #666;
+        --text-hint: #555;
+        --input-bg: #1a1a1a;
+        --input-readonly-bg: #111;
+        --hover-bg: #1a1a1a;
+        --btn-bg: #1a1a1a;
+        --btn-hover-bg: #222;
+        --btn-border: #333;
+        --btn-hover-border: #444;
+        --accent: #da7756;
+        --accent-hover: #c4684a;
+        --danger: #f87171;
+        --danger-bg: #1f1515;
+        --danger-border: #3a2020;
+        --success: #4ade80;
+        --error: #f87171;
+        --tab-bg: #111;
+        --tab-active-bg: #1a1a1a;
+        --snippet-bg: #1a1a1a;
+        --snippet-text: #aaa;
+        --code-font: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      }
       *,
       *::before,
       *::after {
@@ -16,9 +74,12 @@
         font-family:
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
-        background: #f8f9fa;
-        color: #1a1a1a;
+        background: var(--bg);
+        color: var(--text);
         line-height: 1.6;
+        transition:
+          background 0.2s,
+          color 0.2s;
       }
       .container {
         max-width: 860px;
@@ -31,38 +92,76 @@
         justify-content: space-between;
         margin-bottom: 32px;
         padding-bottom: 16px;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--border);
       }
       header h1 {
         font-size: 20px;
         font-weight: 600;
-        color: #111;
+      }
+      header h1 .prompt {
+        color: var(--accent);
+        margin-right: 2px;
+      }
+      .slogan {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 400;
+        margin-left: 10px;
+        letter-spacing: 0.3px;
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .theme-toggle {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--btn-border);
+        border-radius: 6px;
+        background: var(--btn-bg);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        transition: all 0.15s;
+        color: var(--text-muted);
+        padding: 0;
+        line-height: 1;
+      }
+      .theme-toggle:hover {
+        background: var(--btn-hover-bg);
+        border-color: var(--btn-hover-border);
       }
       .status {
         display: flex;
         align-items: center;
         gap: 6px;
         font-size: 13px;
-        color: #6b7280;
+        color: var(--text-muted);
       }
       .status .dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #d1d5db;
+        background: var(--btn-border);
       }
       .status .dot.online {
-        background: #22c55e;
+        background: var(--success);
       }
       .status .dot.error {
-        background: #ef4444;
+        background: var(--error);
       }
       section {
-        background: #fff;
-        border: 1px solid #e5e7eb;
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 24px;
         margin-bottom: 24px;
+        transition:
+          background 0.2s,
+          border-color 0.2s;
       }
       section h2 {
         font-size: 15px;
@@ -82,56 +181,61 @@
         width: 80px;
         font-size: 13px;
         font-weight: 500;
-        color: #374151;
+        color: var(--text-secondary);
         flex-shrink: 0;
       }
       .form-row input,
       .form-row select {
         flex: 1;
         padding: 8px 12px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--btn-border);
         border-radius: 6px;
         font-size: 13px;
         outline: none;
         transition: border-color 0.15s;
+        background: var(--input-bg);
+        color: var(--text);
+        font-family: inherit;
       }
       .form-row input:focus,
       .form-row select:focus {
-        border-color: #2563eb;
+        border-color: var(--accent);
       }
       .form-row input[readonly] {
-        background: #f9fafb;
-        color: #374151;
+        background: var(--input-readonly-bg);
+        color: var(--text-secondary);
       }
       .btn {
         padding: 7px 16px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--btn-border);
         border-radius: 6px;
-        background: #fff;
+        background: var(--btn-bg);
         font-size: 13px;
         cursor: pointer;
         transition: all 0.15s;
-        color: #374151;
+        color: var(--text-secondary);
         white-space: nowrap;
+        font-family: inherit;
       }
       .btn:hover {
-        background: #f3f4f6;
-        border-color: #9ca3af;
+        background: var(--btn-hover-bg);
+        border-color: var(--btn-hover-border);
       }
       .btn-primary {
-        background: #2563eb;
+        background: var(--accent);
         color: #fff;
-        border-color: #2563eb;
+        border-color: var(--accent);
       }
       .btn-primary:hover {
-        background: #1d4ed8;
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
       }
       .btn-danger {
-        color: #dc2626;
-        border-color: #fecaca;
+        color: var(--danger);
+        border-color: var(--danger-border);
       }
       .btn-danger:hover {
-        background: #fef2f2;
+        background: var(--danger-bg);
       }
       .btn-sm {
         padding: 4px 10px;
@@ -151,29 +255,31 @@
       thead th {
         text-align: left;
         padding: 8px 10px;
-        border-bottom: 2px solid #e5e7eb;
+        border-bottom: 2px solid var(--border);
         font-weight: 600;
-        color: #374151;
+        color: var(--text-secondary);
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
       }
       tbody td {
         padding: 8px 10px;
-        border-bottom: 1px solid #f3f4f6;
+        border-bottom: 1px solid var(--border-light);
         vertical-align: middle;
       }
       tbody tr:hover {
-        background: #f9fafb;
+        background: var(--hover-bg);
       }
       td input,
       td select {
         width: 100%;
         padding: 6px 8px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--btn-border);
         border-radius: 4px;
         font-size: 13px;
-        background: #fff;
+        background: var(--input-bg);
+        color: var(--text);
+        font-family: inherit;
       }
       td select {
         cursor: pointer;
@@ -181,7 +287,11 @@
       td input:focus,
       td select:focus {
         outline: none;
-        border-color: #2563eb;
+        border-color: var(--accent);
+      }
+      select option {
+        background: var(--input-bg);
+        color: var(--text);
       }
       .toast {
         position: fixed;
@@ -197,10 +307,10 @@
         z-index: 100;
       }
       .toast.success {
-        background: #22c55e;
+        background: var(--success);
       }
       .toast.error {
-        background: #ef4444;
+        background: var(--error);
       }
       .toast.show {
         opacity: 1;
@@ -208,7 +318,7 @@
       .empty-hint {
         text-align: center;
         padding: 20px;
-        color: #9ca3af;
+        color: var(--text-hint);
         font-size: 13px;
       }
       .snippet-tabs {
@@ -220,10 +330,10 @@
       .snippet-tab {
         padding: 6px 16px;
         font-size: 12px;
-        border: 1px solid #d1d5db;
-        background: #f9fafb;
+        border: 1px solid var(--btn-border);
+        background: var(--tab-bg);
         cursor: pointer;
-        color: #6b7280;
+        color: var(--text-muted);
         border-bottom: none;
         position: relative;
         top: 1px;
@@ -235,14 +345,14 @@
         border-radius: 0 6px 0 0;
       }
       .snippet-tab.active {
-        background: #fff;
-        color: #111;
+        background: var(--tab-active-bg);
+        color: var(--text);
         font-weight: 600;
-        border-bottom-color: #fff;
+        border-bottom-color: var(--tab-active-bg);
       }
       .snippet-box {
-        background: #fff;
-        border: 1px solid #d1d5db;
+        background: var(--snippet-bg);
+        border: 1px solid var(--btn-border);
         border-radius: 0 6px 6px 6px;
         padding: 16px;
         padding-right: 70px;
@@ -250,12 +360,12 @@
       }
       .snippet-box code {
         display: block;
-        font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+        font-family: var(--code-font);
         font-size: 12px;
         line-height: 1.7;
         white-space: pre-wrap;
         word-break: break-all;
-        color: #374151;
+        color: var(--snippet-text);
       }
       .snippet-box .copy-float {
         position: absolute;
@@ -264,7 +374,7 @@
       }
       .sub-label {
         font-size: 12px;
-        color: #9ca3af;
+        color: var(--text-hint);
         margin-top: 4px;
       }
     </style>
@@ -272,10 +382,22 @@
   <body>
     <div class="container">
       <header>
-        <h1>Claude Bridge 管理面板</h1>
-        <div class="status">
-          <span class="dot" id="statusDot"></span>
-          <span id="statusText">连接中...</span>
+        <h1>
+          <span class="prompt">&gt;_</span> cdx.cc
+          <span class="slogan">把 Codex 装进 Claude Code</span>
+        </h1>
+        <div class="header-right">
+          <div class="status">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">连接中...</span>
+          </div>
+          <button
+            class="theme-toggle"
+            id="themeToggle"
+            title="切换深色/浅色主题"
+          >
+            &#9790;
+          </button>
         </div>
       </header>
 
@@ -308,11 +430,10 @@
         <table>
           <thead>
             <tr>
-              <th style="width: 28%">入站模型</th>
-              <th style="width: 25%">上游模型</th>
-              <th style="width: 16%">推理强度</th>
-              <th style="width: 16%">Fast推理</th>
-              <th style="width: 15%"></th>
+              <th style="width: 30%">入站模型</th>
+              <th style="width: 30%">上游模型</th>
+              <th style="width: 20%">推理强度</th>
+              <th style="width: 20%"></th>
             </tr>
           </thead>
           <tbody id="modelRows"></tbody>
@@ -331,6 +452,18 @@
       <!-- 连接配置 -->
       <section>
         <h2>连接配置</h2>
+        <div class="form-row">
+          <label>服务地址</label>
+          <input
+            type="text"
+            id="serviceUrl"
+            placeholder="https://cdx.cc（留空则使用当前页面地址）"
+          />
+          <button class="btn btn-sm" id="btnSaveServiceUrl">保存</button>
+        </div>
+        <p class="sub-label" style="margin-left: 92px; margin-bottom: 16px">
+          对外访问地址（反代域名），用于生成下方连接代码片段
+        </p>
         <div class="form-row">
           <label>Auth Token</label>
           <input type="text" id="authToken" readonly />
@@ -377,16 +510,7 @@
           "claude-sonnet-4-6[1m]",
           "claude-haiku-4-5",
         ];
-        // 入站模型 → 推荐推理强度
         var PRESET_EFFORT = {
-          "claude-opus-4-6": "xhigh",
-          "claude-opus-4-6[1m]": "xhigh",
-          "claude-sonnet-4-6": "high",
-          "claude-sonnet-4-6[1m]": "high",
-          "claude-haiku-4-5": "low",
-        };
-        // 入站模型 → 推荐 fast 推理强度（保持不变，fast 只是更快推理）
-        var PRESET_FAST_EFFORT = {
           "claude-opus-4-6": "xhigh",
           "claude-opus-4-6[1m]": "xhigh",
           "claude-sonnet-4-6": "high",
@@ -411,7 +535,6 @@
           }, 2500);
         }
 
-        // 复制到剪贴板
         function copyText(text) {
           if (navigator.clipboard) {
             navigator.clipboard.writeText(text).then(function () {
@@ -422,7 +545,6 @@
           }
         }
 
-        // 安全创建 option 元素
         function createOption(value, label, selected) {
           var opt = document.createElement("option");
           opt.value = value;
@@ -431,7 +553,6 @@
           return opt;
         }
 
-        // 填充入站模型下拉框
         function populateInboundSelect(sel, selectedValue) {
           while (sel.firstChild) sel.removeChild(sel.firstChild);
           sel.appendChild(createOption("", "(手动输入)", false));
@@ -446,7 +567,6 @@
           }
         }
 
-        // 填充上游模型下拉框
         function populateModelSelect(sel, selectedValue) {
           while (sel.firstChild) sel.removeChild(sel.firstChild);
           sel.appendChild(createOption("", "(手动输入)", false));
@@ -461,7 +581,6 @@
           }
         }
 
-        // 填充推理强度下拉框
         function populateEffortSelect(sel, selectedValue) {
           while (sel.firstChild) sel.removeChild(sel.firstChild);
           for (var i = 0; i < EFFORTS.length; i++) {
@@ -481,7 +600,6 @@
             : "block";
         }
 
-        // 创建 select + manual input 组合控件
         function createComboField(
           className,
           options,
@@ -499,7 +617,6 @@
           inp.placeholder = "输入模型名";
           inp.style.display = "none";
 
-          // 值不在列表中 → 手动模式
           if (selectedValue && sel.value !== selectedValue) {
             sel.value = "";
             sel.style.display = "none";
@@ -520,7 +637,6 @@
           return { fragment: wrapper, select: sel, input: inp };
         }
 
-        // 从 combo 控件读取值
         function readComboValue(td, className) {
           var sel = td.querySelector("." + className);
           var manual = td.querySelector("." + className + "-manual");
@@ -529,16 +645,14 @@
           return val;
         }
 
-        function addRow(inbound, upstream, effort, fastEffort) {
+        function addRow(inbound, upstream, effort) {
           inbound = inbound || "";
           upstream = upstream || "";
           effort = effort || "";
-          fastEffort = fastEffort || "";
 
           var tbody = $("modelRows");
           var tr = document.createElement("tr");
 
-          // 入站模型列（下拉 + 手动输入）
           var td1 = document.createElement("td");
           var inboundCombo = createComboField(
             "m-inbound",
@@ -549,7 +663,6 @@
           td1.appendChild(inboundCombo.fragment);
           tr.appendChild(td1);
 
-          // 上游模型列（下拉 + 手动输入）
           var td2 = document.createElement("td");
           var upstreamCombo = createComboField(
             "m-upstream",
@@ -560,7 +673,6 @@
           td2.appendChild(upstreamCombo.fragment);
           tr.appendChild(td2);
 
-          // 推理强度列
           var td3 = document.createElement("td");
           var selEffort = document.createElement("select");
           selEffort.className = "m-effort";
@@ -568,27 +680,13 @@
           td3.appendChild(selEffort);
           tr.appendChild(td3);
 
-          // Fast 推理强度列
-          var td3b = document.createElement("td");
-          var selFastEffort = document.createElement("select");
-          selFastEffort.className = "m-fast-effort";
-          populateEffortSelect(selFastEffort, fastEffort);
-          td3b.appendChild(selFastEffort);
-          tr.appendChild(td3b);
-
-          // 入站模型选择联动：自动设置推荐推理强度
           inboundCombo.select.addEventListener("change", function () {
             var preset = PRESET_EFFORT[this.value];
             if (preset && !effort) {
               selEffort.value = preset;
             }
-            var fastPreset = PRESET_FAST_EFFORT[this.value];
-            if (fastPreset && !fastEffort) {
-              selFastEffort.value = fastPreset;
-            }
           });
 
-          // 删除按钮列
           var td4 = document.createElement("td");
           td4.style.textAlign = "center";
           var btnDel = document.createElement("button");
@@ -615,17 +713,15 @@
             var upstream = readComboValue(tr.children[1], "m-upstream");
             if (!upstream) continue;
             var effort = tr.querySelector(".m-effort").value;
-            var fastEffort = tr.querySelector(".m-fast-effort").value;
             models[inbound] = { upstream_model: upstream };
             if (effort) models[inbound].reasoning_effort = effort;
-            if (fastEffort) models[inbound].fast_reasoning_effort = fastEffort;
           }
           return models;
         }
 
-        // 生成连接配置代码片段
         function renderSnippet() {
-          var bridgeUrl = location.protocol + "//" + location.host;
+          var custom = $("serviceUrl").value.trim();
+          var bridgeUrl = custom || location.protocol + "//" + location.host;
           var code = $("snippetCode");
           var text = "";
 
@@ -683,24 +779,18 @@
                 ? "(已配置，输入新值覆盖)"
                 : "sk-...";
 
-              // Auth Token
               currentAuthToken = data.auth_token || "";
               $("authToken").value = currentAuthToken;
+              $("serviceUrl").value = data.service_url || "";
               renderSnippet();
 
-              // 清空并重新渲染模型映射
               var tbody = $("modelRows");
               while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
               if (data.models) {
                 var keys = Object.keys(data.models);
                 for (var i = 0; i < keys.length; i++) {
                   var v = data.models[keys[i]];
-                  addRow(
-                    keys[i],
-                    v.upstream_model,
-                    v.reasoning_effort || "",
-                    v.fast_reasoning_effort || "",
-                  );
+                  addRow(keys[i], v.upstream_model, v.reasoning_effort || "");
                 }
               }
               toggleEmpty();
@@ -738,7 +828,6 @@
             .then(function (data) {
               upstreamModels = data.models || [];
               toast("已获取 " + upstreamModels.length + " 个模型", "success");
-              // 更新所有上游模型下拉框，保留已选值
               var selects = document.querySelectorAll(".m-upstream");
               for (var i = 0; i < selects.length; i++) {
                 var sel = selects[i];
@@ -831,6 +920,19 @@
             });
         }
 
+        // 主题切换
+        function applyTheme(theme) {
+          document.documentElement.setAttribute("data-theme", theme);
+          localStorage.setItem("cdx-theme", theme);
+          $("themeToggle").innerHTML = theme === "dark" ? "&#9788;" : "&#9790;";
+        }
+        var savedTheme = localStorage.getItem("cdx-theme") || "light";
+        applyTheme(savedTheme);
+        $("themeToggle").addEventListener("click", function () {
+          var cur = document.documentElement.getAttribute("data-theme");
+          applyTheme(cur === "dark" ? "light" : "dark");
+        });
+
         // Tab 切换
         var tabs = document.querySelectorAll(".snippet-tab");
         for (var i = 0; i < tabs.length; i++) {
@@ -843,7 +945,6 @@
           });
         }
 
-        // 绑定事件
         $("btnSaveUpstream").addEventListener("click", saveUpstream);
         $("btnRefreshModels").addEventListener("click", refreshModels);
         $("btnAddRow").addEventListener("click", function () {
@@ -857,8 +958,27 @@
         $("btnCopySnippet").addEventListener("click", function () {
           copyText($("snippetCode").textContent);
         });
+        $("btnSaveServiceUrl").addEventListener("click", function () {
+          var url = $("serviceUrl").value.trim();
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ service_url: url }),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("服务地址已保存", "success");
+              renderSnippet();
+            })
+            .catch(function (e) {
+              toast("保存失败: " + e.message, "error");
+            });
+        });
+        $("serviceUrl").addEventListener("input", renderSnippet);
 
-        // 初始化
         loadStatus();
         loadConfig();
         refreshModels();

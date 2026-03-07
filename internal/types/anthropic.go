@@ -36,6 +36,7 @@ type AnthropicContentBlock struct {
 	IsError   *bool           `json:"is_error,omitempty"`
 	Thinking  string          `json:"thinking,omitempty"`
 	Signature string          `json:"signature,omitempty"`
+	Citations json.RawMessage `json:"citations,omitempty"`
 }
 
 type AnthropicImage struct {

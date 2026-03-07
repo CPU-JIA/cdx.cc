@@ -14,9 +14,10 @@ import (
 
 // RuntimeData 存储运行时可变配置
 type RuntimeData struct {
-	Upstream  UpstreamConfig          `json:"upstream"`
-	Models    map[string]ModelMapping `json:"models,omitempty"`
-	AuthToken string                  `json:"auth_token,omitempty"`
+	Upstream   UpstreamConfig          `json:"upstream"`
+	Models     map[string]ModelMapping `json:"models,omitempty"`
+	AuthToken  string                  `json:"auth_token,omitempty"`
+	ServiceURL string                  `json:"service_url,omitempty"` // 对外访问地址（如 https://cdx.cc）
 }
 
 // UpstreamConfig 上游服务配置
@@ -56,11 +57,6 @@ func NewRuntimeConfig(cfg Config, filePath string) (*RuntimeConfig, error) {
 		return nil, err
 	}
 
-	// 校验：至少要有上游 URL
-	if rc.data.Upstream.BaseURL == "" {
-		return nil, errors.New("upstream base URL is required (set UPSTREAM_BASE_URL or configure via admin panel)")
-	}
-
 	// 首次启动自动生成 Auth Token 并持久化
 	if rc.data.AuthToken == "" {
 		rc.data.AuthToken = generateToken()
@@ -78,8 +74,9 @@ func (rc *RuntimeConfig) Get() RuntimeData {
 	defer rc.mu.RUnlock()
 
 	snapshot := RuntimeData{
-		Upstream:  rc.data.Upstream,
-		AuthToken: rc.data.AuthToken,
+		Upstream:   rc.data.Upstream,
+		AuthToken:  rc.data.AuthToken,
+		ServiceURL: rc.data.ServiceURL,
 	}
 	if rc.data.Models != nil {
 		snapshot.Models = make(map[string]ModelMapping, len(rc.data.Models))
@@ -125,6 +122,7 @@ func (rc *RuntimeConfig) Update(data RuntimeData) error {
 	if data.Upstream.BaseURL == "" {
 		return errors.New("upstream base URL cannot be empty")
 	}
+	data.ServiceURL = strings.TrimRight(strings.TrimSpace(data.ServiceURL), "/")
 
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
@@ -157,6 +155,9 @@ func (rc *RuntimeConfig) loadFromFile() error {
 	}
 	if data.AuthToken != "" {
 		rc.data.AuthToken = data.AuthToken
+	}
+	if data.ServiceURL != "" {
+		rc.data.ServiceURL = strings.TrimRight(data.ServiceURL, "/")
 	}
 
 	return nil

@@ -1,6 +1,14 @@
-# Claude Bridge
+# >\_ cdx.cc — 把 Codex 装进 Claude Code
 
-Anthropic Messages API → OpenAI Responses API 协议转换代理。让 GPT / Codex 模型在 **Claude Code CLI** 中原生使用。
+Anthropic Messages API → OpenAI Responses API 协议转换代理。让 Codex / GPT 模型在 **Claude Code CLI** 中原生使用。
+
+## 功能
+
+- 完整协议转换：Anthropic Messages API ↔ OpenAI Responses API
+- Web 管理面板：动态配置上游、模型映射、认证，无需重启
+- 流式 SSE 转换：逐事件实时桥接，支持 thinking / tool_use / web_search
+- 热更新配置：JSON 持久化，Docker 友好
+- 零配置启动：开箱即用，默认上游 `https://api.openai.com`
 
 ## 快速开始
 
@@ -10,26 +18,30 @@ Anthropic Messages API → OpenAI Responses API 协议转换代理。让 GPT / C
 go build -o claude-bridge ./cmd/claude-bridge
 ```
 
-### 2. 启动 Bridge
+### 2. 启动
 
 ```bash
-UPSTREAM_BASE_URL=https://your-openai-api.com \
-UPSTREAM_API_KEY=sk-xxx \
 ./claude-bridge
 ```
 
-Bridge 默认监听 `:8787`。
+Bridge 默认监听 `:8787`，打开 `http://localhost:8787/admin` 配置上游和模型映射。
 
-### 3. 配置 Claude Code CLI
+也可以通过环境变量预配置：
+
+```bash
+UPSTREAM_BASE_URL=https://your-api.com \
+UPSTREAM_API_KEY=sk-xxx \
+AUTH_TOKEN=your-bridge-token \
+./claude-bridge
+```
+
+### 3. 配置 Claude Code
 
 **Bash / Zsh（推荐写入 `~/.bashrc`）：**
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:8787
-export ANTHROPIC_API_KEY=any-key-here
-export ANTHROPIC_MODEL=gpt-5.4
-export DISABLE_INTERLEAVED_THINKING=1
-
+export ANTHROPIC_API_KEY=your-bridge-token
 claude
 ```
 
@@ -37,124 +49,137 @@ claude
 
 ```powershell
 $env:ANTHROPIC_BASE_URL = "http://localhost:8787"
-$env:ANTHROPIC_API_KEY = "any-key-here"
-$env:ANTHROPIC_MODEL = "gpt-5.4"
-$env:DISABLE_INTERLEAVED_THINKING = "1"
-
+$env:ANTHROPIC_API_KEY = "your-bridge-token"
 claude
 ```
 
-> `ANTHROPIC_API_KEY` 可以是任意值 — 当 bridge 配置了 `UPSTREAM_API_KEY` 时，客户端的 key 不会被转发。
+> **重要**：必须从项目目录内启动 Claude Code（`cd your-project && claude`），否则 sub-agents 和 worktree 无法正常工作。
 
-### 4. 完事
+### 4. Docker 部署
 
-Claude Code CLI 现在使用 GPT-5.4（或任意 OpenAI 兼容模型）作为后端。
+```bash
+docker compose up -d
+```
+
+生产环境在管理面板设置"服务地址"为你的域名（如 `https://bridge.example.com`），连接配置代码片段会自动更新。
+
+## 管理面板
+
+访问 `http://localhost:8787/admin`，功能包括：
+
+- **上游配置**：Base URL、API Key，实时生效
+- **模型映射**：入站 Claude 模型名 → 上游模型 + 推理强度，下拉选择上游真实模型列表
+- **连接配置**：Auth Token、服务地址，一键复制客户端配置代码
+
+所有配置保存到 `runtime_config.json`，重启自动恢复。
 
 ## 环境变量
 
-| 变量                       | 必需   | 默认值        | 说明                                                         |
-| -------------------------- | ------ | ------------- | ------------------------------------------------------------ |
-| `UPSTREAM_BASE_URL`        | **是** | —             | 上游 OpenAI 兼容 API 地址                                    |
-| `UPSTREAM_API_KEY`         | 否     | —             | 上游 API Key（留空则转发客户端的 Authorization / X-API-Key） |
-| `LISTEN_ADDR`              | 否     | `:8787`       | 监听地址                                                     |
-| `MODE`                     | 否     | `best_effort` | `strict` 拒绝不支持的字段；`best_effort` 静默跳过            |
-| `DISABLE_RESPONSE_STORAGE` | 否     | —             | 设置任意值则请求中 `store=false`                             |
-| `UPSTREAM_TIMEOUT_SECS`    | 否     | `120`         | 上游请求超时秒数                                             |
-| `MAX_BODY_MB`              | 否     | `10`          | 最大请求体大小 (MB)                                          |
-| `REDIS_URL`                | 否     | —             | Redis 连接字符串（留空用内存存储）                           |
-| `LOG_LEVEL`                | 否     | `info`        | `debug` / `info` / `warn` / `error`                          |
+| 变量                       | 默认值                   | 说明                                                  |
+| -------------------------- | ------------------------ | ----------------------------------------------------- |
+| `UPSTREAM_BASE_URL`        | `https://api.openai.com` | 上游 OpenAI 兼容 API 地址                             |
+| `UPSTREAM_API_KEY`         | —                        | 上游 API Key                                          |
+| `AUTH_TOKEN`               | —                        | Bridge 入站认证 Token                                 |
+| `LISTEN_ADDR`              | `:8787`                  | 监听地址                                              |
+| `MODE`                     | `best_effort`            | `strict` 或 `best_effort`                             |
+| `MODEL_MAP`                | —                        | 模型映射（格式：`claude-opus-4-6=gpt-5.4:xhigh,...`） |
+| `UPSTREAM_TIMEOUT_SECS`    | `120`                    | 上游请求超时秒数                                      |
+| `MAX_BODY_MB`              | `10`                     | 最大请求体 (MB)                                       |
+| `DISABLE_RESPONSE_STORAGE` | —                        | 设置任意值则 `store=false`                            |
+| `LOG_LEVEL`                | `info`                   | `debug` / `info` / `warn` / `error`                   |
+| `REDIS_URL`                | —                        | Redis 连接字符串（留空用内存存储）                    |
 
-## 支持的转换
+> 所有环境变量均可在管理面板中覆盖，热更新无需重启。
 
-| Anthropic (入)                     | OpenAI (出)                              | 状态 |
-| ---------------------------------- | ---------------------------------------- | ---- |
-| `/v1/messages` JSON                | `/v1/responses` JSON                     | ✅   |
-| `/v1/messages` SSE 流式            | `/v1/responses` SSE 流式                 | ✅   |
-| `tool_use` / `tool_result`         | `function_call` / `function_call_output` | ✅   |
-| `thinking` (extended thinking)     | `reasoning` (effort + summary)           | ✅   |
-| `image` (base64 / URL)             | `input_image` (image_url 平铺字符串)     | ✅   |
-| `document` 块                      | `input_text` 占位 (best_effort)          | ✅   |
-| `system` (string / block array)    | `instructions`                           | ✅   |
-| `metadata`                         | 剥离（上游不支持）                       | ✅   |
-| `cache_control`                    | 剥离（OpenAI 无此概念）                  | ✅   |
-| 历史中 `thinking` / `signature` 块 | 剥离（OpenAI 不需要）                    | ✅   |
+## 协议转换
 
-### Thinking → Reasoning 映射
+### API 端点
 
-```
-Anthropic thinking                →  OpenAI reasoning
-──────────────────────────────────────────────────────
-thinking.type = "enabled"         →  reasoning.effort 按 budget_tokens 推算：
-  budget_tokens ≤ 2048            →  "low"
-  budget_tokens ≤ 8192            →  "medium"
-  budget_tokens ≤ 32768           →  "high"
-  budget_tokens > 32768           →  "xhigh"
-  无 budget_tokens                →  "xhigh"（默认拉满）
-thinking.type = "disabled"        →  reasoning.effort = "none"
-无 thinking 字段                   →  不设 reasoning
-```
+| 端点                                | 说明                        |
+| ----------------------------------- | --------------------------- |
+| `POST /v1/messages`                 | 主消息 API（流式 + 非流式） |
+| `POST /v1/messages/count_tokens`    | Token 计数（估算）          |
+| `GET /api/claude_code_penguin_mode` | /fast 模式支持              |
+| `GET /admin`                        | 管理面板                    |
+| `GET /health`                       | 健康检查                    |
 
-### Stop Reason 映射
+### 请求转换
 
-```
-OpenAI                             →  Anthropic
-───────────────────────────────────────────────
-incomplete: max_output_tokens      →  "max_tokens"
-incomplete: content_filter         →  "end_turn"
-status: "incomplete"               →  "max_tokens"
-status: "failed" / "cancelled"     →  "end_turn"
-有 function_call 输出               →  "tool_use"
-正常完成                            →  "end_turn"
-```
+| Anthropic (入)                   | OpenAI (出)                                  |
+| -------------------------------- | -------------------------------------------- |
+| `/v1/messages`                   | `/v1/responses`                              |
+| `tool_use` / `tool_result`       | `function_call` / `function_call_output`     |
+| `thinking.type = enabled`        | `reasoning.effort` (按 budget_tokens 推算)   |
+| `thinking.type = adaptive`       | `reasoning.effort = high` + `summary = auto` |
+| `thinking.type = disabled`       | `reasoning.effort = none`                    |
+| `image` (base64 / URL)           | `input_image`                                |
+| `system` (string / blocks)       | `instructions`                               |
+| `web_search` 工具                | `web_search` (OpenAI GA)                     |
+| `cache_control`                  | 剥离                                         |
+| 历史 `thinking` / `signature` 块 | 剥离                                         |
 
 ### 流式事件映射
 
-```
-OpenAI SSE 事件                        →  Anthropic SSE 事件
-─────────────────────────────────────────────────────────────
-response.created                       →  message_start
-response.content_part.added            →  content_block_start (text)
-response.output_text.delta             →  content_block_delta (text_delta)
-response.output_text.done              →  content_block_stop
-response.output_item.added (tool)      →  content_block_start (tool_use)
-response.function_call_arguments.delta →  content_block_delta (input_json_delta)
-response.function_call_arguments.done  →  content_block_stop
-response.reasoning_summary_text.delta  →  content_block_delta (thinking_delta)
-response.reasoning_text.delta          →  content_block_delta (thinking_delta)
-response.completed                     →  message_delta + message_stop
-response.incomplete                    →  message_delta (max_tokens) + message_stop
-response.failed / cancelled            →  message_delta (end_turn) + message_stop
-response.refusal.delta                 →  content_block_delta (text_delta)
-```
+| OpenAI SSE                               | Anthropic SSE                                |
+| ---------------------------------------- | -------------------------------------------- |
+| `response.created`                       | `message_start`                              |
+| `response.output_text.delta`             | `content_block_delta` (text_delta)           |
+| `response.output_item.added` (tool)      | `content_block_start` (tool_use)             |
+| `response.function_call_arguments.delta` | `content_block_delta` (input_json_delta)     |
+| `response.reasoning_summary_text.delta`  | `content_block_delta` (thinking_delta)       |
+| `response.reasoning_text.delta`          | `content_block_delta` (thinking_delta)       |
+| `response.web_search_call.completed`     | `server_tool_use` + `web_search_tool_result` |
+| `response.completed`                     | `message_delta` + `message_stop`             |
+| `response.refusal.delta`                 | `content_block_delta` (text_delta)           |
+
+### 响应头
+
+Bridge 设置 Anthropic 兼容的 rate-limit 响应头（`anthropic-ratelimit-*`），Claude Code 依赖这些头显示状态栏的上下文百分比和 Token 计数。
 
 ## 架构
 
 ```
 Claude Code CLI
-  │ Anthropic Messages API (/v1/messages)
+  │ Anthropic Messages API
   ▼
-┌──────────────┐
-│ Claude Bridge │  :8787
-│              │
-│  Decode      │  Anthropic JSON → 内部结构
-│  Transform   │  内部结构 → OpenAI Responses 格式
-│  Forward     │  → upstream /v1/responses
-│  Stream      │  OpenAI SSE → Anthropic SSE 逐事件转换
-└──────────────┘
-  │ OpenAI Responses API (/v1/responses)
+┌────────────────────────────────┐
+│         cdx.cc Bridge          │  :8787
+│                                │
+│  /v1/messages          → 协议转换 → /v1/responses
+│  /v1/messages/count_tokens → Token 估算
+│  /admin                → 管理面板 (嵌入式 HTML)
+│  /health               → 健康检查
+│                                │
+│  RuntimeConfig: JSON 持久化，热更新
+└────────────────────────────────┘
+  │ OpenAI Responses API
   ▼
-Upstream (GPT / Codex / 兼容 API)
+Upstream (Codex / GPT / 兼容 API)
 ```
 
 ## 已验证
 
 - [x] 纯文本对话（流式 + 非流式）
-- [x] 工具调用（Bash / Read / Glob 等 70+ 工具）
+- [x] 工具调用（70+ 工具完整支持）
 - [x] 多模态图片（URL + base64）
-- [x] Thinking/Reasoning 双向转换
-- [x] 多轮对话（历史 thinking/signature 自动剥离）
-- [x] Claude Code CLI 端到端完整运行
-- [x] metadata 剥离（防止上游 502）
+- [x] Thinking/Reasoning（enabled / adaptive / disabled）
+- [x] Sub-agents（普通模式 + worktree 隔离）
+- [x] /fast 模式
+- [x] Web Search 工具映射
+- [x] 模型名称保持（CC 功能检测依赖模型名子字符串）
+- [x] Token 计数端点
+- [x] 管理面板热更新配置
+- [x] Docker 部署
+
+## /fast 模式
+
+需要 patch Claude Code CLI 解锁 /fast（penguin mode 硬编码到 api.anthropic.com）：
+
+```bash
+bash scripts/patch-fast-mode.sh
+```
+
+恢复：`bash scripts/patch-fast-mode.sh --restore`
 
 ## License
 

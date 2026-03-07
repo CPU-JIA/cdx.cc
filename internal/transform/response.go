@@ -11,11 +11,14 @@ import (
 	"cdx.cc/claude-bridge/internal/types"
 )
 
-func TransformOpenAIToAnthropic(resp types.OpenAIResponse, mode config.Mode) (types.AnthropicMessageResponse, error) {
+func TransformOpenAIToAnthropic(resp types.OpenAIResponse, mode config.Mode, requestModel string) (types.AnthropicMessageResponse, error) {
 	content := make([]types.AnthropicContentBlock, 0, len(resp.Output))
 	// thinking 块收集（放在所有 content 之前）
 	var thinkingBlocks []types.AnthropicContentBlock
 	toolUsed := false
+
+	// 预收集所有 url_citation 注解（用于 web_search_tool_result）
+	allAnnotations := collectAnnotations(resp.Output)
 
 	for _, item := range resp.Output {
 		switch item.Type {
@@ -53,9 +56,8 @@ func TransformOpenAIToAnthropic(resp types.OpenAIResponse, mode config.Mode) (ty
 			content = append(content, block)
 			toolUsed = true
 		case "web_search_call":
-			// web_search_call 是 OpenAI 的内部搜索结果，模型的文本回复已包含搜索内容
-			// 静默跳过（不产出 [unsupported] 占位文本）
-			continue
+			blocks := openAIWebSearchToBlocks(item, allAnnotations)
+			content = append(content, blocks...)
 		default:
 			if mode == config.ModeStrict {
 				return types.AnthropicMessageResponse{}, fmt.Errorf("unsupported output item type: %s", item.Type)
@@ -86,7 +88,7 @@ func TransformOpenAIToAnthropic(resp types.OpenAIResponse, mode config.Mode) (ty
 		Type:       "message",
 		Role:       "assistant",
 		Content:    content,
-		Model:      resp.Model,
+		Model:      requestModel,
 		StopReason: stopReason,
 		Usage:      usage,
 	}, nil
@@ -105,7 +107,11 @@ func openAIMessageToBlocks(item types.OpenAIOutputItem, mode config.Mode) ([]typ
 	for _, part := range parts {
 		switch part.Type {
 		case "output_text":
-			blocks = append(blocks, types.AnthropicContentBlock{Type: "text", Text: part.Text})
+			block := types.AnthropicContentBlock{Type: "text", Text: part.Text}
+			if len(part.Annotations) > 0 {
+				block.Citations = annotationsToCitations(part.Annotations, part.Text)
+			}
+			blocks = append(blocks, block)
 		case "refusal":
 			if mode == config.ModeStrict {
 				return nil, errors.New("refusal is not supported in strict mode")
@@ -276,4 +282,118 @@ func deriveStopReason(resp types.OpenAIResponse, toolUsed bool) *string {
 	}
 	mapped := "end_turn"
 	return &mapped
+}
+
+// collectAnnotations 从所有 message 输出项中收集 url_citation 注解
+func collectAnnotations(output []types.OpenAIOutputItem) []types.OpenAIAnnotation {
+	var all []types.OpenAIAnnotation
+	for _, item := range output {
+		if item.Type != "message" || len(item.Content) == 0 {
+			continue
+		}
+		var parts []types.OpenAIMessageContent
+		if err := json.Unmarshal(item.Content, &parts); err != nil {
+			continue
+		}
+		for _, part := range parts {
+			for _, ann := range part.Annotations {
+				if ann.Type == "url_citation" {
+					all = append(all, ann)
+				}
+			}
+		}
+	}
+	return all
+}
+
+// openAIWebSearchToBlocks 将 OpenAI web_search_call 转换为 Anthropic server_tool_use + web_search_tool_result
+func openAIWebSearchToBlocks(item types.OpenAIOutputItem, annotations []types.OpenAIAnnotation) []types.AnthropicContentBlock {
+	var action struct {
+		Query string `json:"query"`
+	}
+	if len(item.Action) > 0 {
+		_ = json.Unmarshal(item.Action, &action)
+	}
+
+	toolUseID := "srvtoolu_" + item.ID
+
+	// server_tool_use 块
+	serverToolUse := types.AnthropicContentBlock{
+		Type:  "server_tool_use",
+		ID:    toolUseID,
+		Name:  "web_search",
+		Input: mustMarshalRaw(map[string]string{"query": action.Query}),
+	}
+
+	// web_search_tool_result 块（从注解构建搜索结果）
+	searchResults := annotationsToSearchResults(annotations)
+	resultBlock := types.AnthropicContentBlock{
+		Type:      "web_search_tool_result",
+		ToolUseID: toolUseID,
+		Content:   mustMarshalRaw(searchResults),
+	}
+
+	return []types.AnthropicContentBlock{serverToolUse, resultBlock}
+}
+
+// annotationsToSearchResults 将 url_citation 注解转为 web_search_result 数组
+func annotationsToSearchResults(annotations []types.OpenAIAnnotation) []map[string]any {
+	seen := make(map[string]bool)
+	var results []map[string]any
+	for _, ann := range annotations {
+		if ann.Type != "url_citation" || seen[ann.URL] {
+			continue
+		}
+		seen[ann.URL] = true
+		results = append(results, map[string]any{
+			"type":              "web_search_result",
+			"url":               ann.URL,
+			"title":             ann.Title,
+			"encrypted_content": "<encrypted>",
+		})
+	}
+	if results == nil {
+		results = []map[string]any{}
+	}
+	return results
+}
+
+// annotationsToCitations 将 url_citation 注解转为 Anthropic citations 数组
+// text 参数用于提取 cited_text（Anthropic 规范要求最多 150 字符的引用文本）
+func annotationsToCitations(annotations []types.OpenAIAnnotation, text string) json.RawMessage {
+	var citations []map[string]any
+	for _, ann := range annotations {
+		if ann.Type != "url_citation" {
+			continue
+		}
+		citedText := extractCitedText(text, ann.StartIndex, ann.EndIndex)
+		citations = append(citations, map[string]any{
+			"type":             "web_search_result_location",
+			"url":              ann.URL,
+			"title":            ann.Title,
+			"cited_text":       citedText,
+			"encrypted_index":  "<encrypted>",
+			"start_char_index": ann.StartIndex,
+			"end_char_index":   ann.EndIndex,
+		})
+	}
+	if len(citations) == 0 {
+		return nil
+	}
+	return mustMarshalRaw(citations)
+}
+
+// extractCitedText 从原文中按索引截取引用文本，最多 150 字符
+func extractCitedText(text string, start, end int) string {
+	if start < 0 || end <= start || start >= len(text) {
+		return ""
+	}
+	if end > len(text) {
+		end = len(text)
+	}
+	cited := text[start:end]
+	if len(cited) > 150 {
+		cited = cited[:150]
+	}
+	return cited
 }

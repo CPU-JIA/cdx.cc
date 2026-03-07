@@ -82,10 +82,21 @@ type OpenAIOutputItem struct {
 	Name      string          `json:"name,omitempty"`
 	Arguments string          `json:"arguments,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
+	Action    json.RawMessage `json:"action,omitempty"` // web_search_call
+	Status    string          `json:"status,omitempty"` // web_search_call
+}
+
+type OpenAIAnnotation struct {
+	Type       string `json:"type"`
+	URL        string `json:"url,omitempty"`
+	Title      string `json:"title,omitempty"`
+	StartIndex int    `json:"start_index,omitempty"`
+	EndIndex   int    `json:"end_index,omitempty"`
 }
 
 type OpenAIMessageContent struct {
-	Type    string `json:"type"`
-	Text    string `json:"text,omitempty"`
-	Refusal string `json:"refusal,omitempty"`
+	Type        string             `json:"type"`
+	Text        string             `json:"text,omitempty"`
+	Refusal     string             `json:"refusal,omitempty"`
+	Annotations []OpenAIAnnotation `json:"annotations,omitempty"`
 }

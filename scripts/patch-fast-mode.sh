@@ -2,7 +2,7 @@
 # patch-fast-mode.sh — 为 npm 安装的 Claude Code 解锁 /fast 模式
 #
 # 需要 patch 两处：
-#   1. native binary 检测：!v9()) → !1)    绕过 Bun runtime 检测
+#   1. native binary 检测：tengu_marble_sandcastle 后的 !v9()) → !1)
 #   2. penguin mode 检测：r16.status==="disabled" → !1  绕过组织级别禁用
 #
 # 原因：penguin mode 请求硬编码到 api.anthropic.com，不走 ANTHROPIC_BASE_URL
@@ -105,8 +105,8 @@ log_ok "找到 cli.js: $CLI_JS"
 PATCHES_NEEDED=0
 PATCHES_DONE=0
 
-# 检查 patch 1: native binary 检测
-if grep -q '!v9())' "$CLI_JS" 2>/dev/null; then
+# 检查 patch 1: native binary 检测（只检查 fast mode 那一处）
+if grep -q 'tengu_marble_sandcastle",!0)&&!v9())' "$CLI_JS" 2>/dev/null; then
     PATCHES_NEEDED=$((PATCHES_NEEDED + 1))
 elif grep -q 'tengu_marble_sandcastle",!0)&&!1)' "$CLI_JS" 2>/dev/null; then
     log_warn "Patch 1 (native binary) 已应用"
@@ -135,11 +135,11 @@ else
     log_warn "备份已存在，跳过备份"
 fi
 
-# Patch 1: native binary 检测
-# v9() 检测 Bun runtime，替换为 !1 使其永远不触发
-if grep -q '!v9())' "$CLI_JS" 2>/dev/null; then
-    sed -i 's/!v9())/!1)/g' "$CLI_JS"
-    if ! grep -q '!v9())' "$CLI_JS" 2>/dev/null; then
+# Patch 1: native binary 检测（精确匹配 fast mode 检查，不动其他 v9() 调用）
+# tengu_marble_sandcastle flag 后的 !v9() 是 fast mode 专用检查
+if grep -q 'tengu_marble_sandcastle",!0)&&!v9())' "$CLI_JS" 2>/dev/null; then
+    sed -i 's/tengu_marble_sandcastle",!0)\&\&!v9())/tengu_marble_sandcastle",!0)\&\&!1)/g' "$CLI_JS"
+    if grep -q 'tengu_marble_sandcastle",!0)&&!1)' "$CLI_JS" 2>/dev/null; then
         log_ok "Patch 1: native binary 检测已绕过"
         PATCHES_DONE=$((PATCHES_DONE + 1))
     else

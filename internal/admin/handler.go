@@ -56,9 +56,10 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request) {
 
 // configResponse GET 返回的配置结构（上游 API Key 脱敏，Auth Token 完整返回）
 type configResponse struct {
-	Upstream  upstreamResponse               `json:"upstream"`
-	Models    map[string]config.ModelMapping `json:"models,omitempty"`
-	AuthToken string                         `json:"auth_token"`
+	Upstream   upstreamResponse               `json:"upstream"`
+	Models     map[string]config.ModelMapping `json:"models,omitempty"`
+	AuthToken  string                         `json:"auth_token"`
+	ServiceURL string                         `json:"service_url"`
 }
 
 type upstreamResponse struct {
@@ -68,9 +69,10 @@ type upstreamResponse struct {
 
 // configRequest PUT 接收的配置结构
 type configRequest struct {
-	Upstream  *upstreamRequest               `json:"upstream,omitempty"`
-	Models    map[string]config.ModelMapping `json:"models,omitempty"`
-	AuthToken *string                        `json:"auth_token,omitempty"` // nil=不修改, ""=清除, "xxx"=设置新值
+	Upstream   *upstreamRequest               `json:"upstream,omitempty"`
+	Models     map[string]config.ModelMapping `json:"models,omitempty"`
+	AuthToken  *string                        `json:"auth_token,omitempty"`  // nil=不修改, ""=清除, "xxx"=设置新值
+	ServiceURL *string                        `json:"service_url,omitempty"` // nil=不修改
 }
 
 type upstreamRequest struct {
@@ -86,8 +88,9 @@ func (h *Handler) getConfig(w http.ResponseWriter, r *http.Request) {
 			BaseURL: data.Upstream.BaseURL,
 			APIKey:  maskAPIKey(data.Upstream.APIKey),
 		},
-		Models:    data.Models,
-		AuthToken: data.AuthToken,
+		Models:     data.Models,
+		AuthToken:  data.AuthToken,
+		ServiceURL: data.ServiceURL,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -123,6 +126,11 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 	// 合并 Auth Token（指针：nil=不修改，非nil=设置新值）
 	if req.AuthToken != nil {
 		current.AuthToken = *req.AuthToken
+	}
+
+	// 合并服务地址
+	if req.ServiceURL != nil {
+		current.ServiceURL = *req.ServiceURL
 	}
 
 	if err := h.rtCfg.Update(current); err != nil {

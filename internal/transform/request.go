@@ -112,12 +112,10 @@ func TransformAnthropicToOpenAI(req types.AnthropicMessageRequest, mode config.M
 	// 模型映射：入站模型名 → 上游模型名
 	actualModel := req.Model
 	var reasoningOverride string
-	var fastReasoningOverride string
 	if modelMap != nil {
 		if mapping, ok := modelMap[req.Model]; ok {
 			actualModel = mapping.UpstreamModel
 			reasoningOverride = mapping.ReasoningEffort
-			fastReasoningOverride = mapping.FastReasoningEffort
 		}
 	}
 
@@ -161,22 +159,15 @@ func TransformAnthropicToOpenAI(req types.AnthropicMessageRequest, mode config.M
 		oa.Reasoning.Effort = reasoningOverride
 	}
 
-	// /fast 模式：使用 fast_reasoning_effort 覆盖
-	// 仅在明确配置了 fast_reasoning_effort 时生效，否则保持原始强度不变
-	if req.Speed == "fast" && fastReasoningOverride != "" {
-		if oa.Reasoning == nil {
-			oa.Reasoning = &types.OpenAIReasoning{Summary: "auto"}
-		}
-		oa.Reasoning.Effort = fastReasoningOverride
-	}
+	// /fast 模式：CC 客户端自动切换 Opus 4.6，bridge 不额外处理推理强度
 
 	if len(req.Tools) > 0 {
 		oa.Tools = make([]types.OpenAITool, 0, len(req.Tools))
 		for _, tool := range req.Tools {
-			// server-side 工具：web_search → web_search_preview
+			// server-side 工具：web_search → web_search（OpenAI GA 版本）
 			if strings.HasPrefix(tool.Type, "web_search") {
 				oa.Tools = append(oa.Tools, types.OpenAITool{
-					Type: "web_search_preview",
+					Type: "web_search",
 				})
 				continue
 			}
@@ -550,6 +541,25 @@ func mapThinkingToReasoning(raw json.RawMessage) (*types.OpenAIReasoning, error)
 				effort = "high"
 			default:
 				effort = "xhigh"
+			}
+		}
+		return &types.OpenAIReasoning{Effort: effort, Summary: "auto"}, nil
+	case "adaptive":
+		// adaptive: 模型自行决定是否推理，映射为 high effort + auto summary
+		effort := "high"
+		if budgetRaw, hasBudget := obj["budget_tokens"]; hasBudget {
+			var budget int
+			if err := json.Unmarshal(budgetRaw, &budget); err == nil {
+				switch {
+				case budget <= 2048:
+					effort = "low"
+				case budget <= 8192:
+					effort = "medium"
+				case budget <= 32768:
+					effort = "high"
+				default:
+					effort = "xhigh"
+				}
 			}
 		}
 		return &types.OpenAIReasoning{Effort: effort, Summary: "auto"}, nil
