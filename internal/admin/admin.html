@@ -398,6 +398,7 @@
           >
             &#9790;
           </button>
+          <button class="btn btn-sm" id="btnLogout" title="登出">登出</button>
         </div>
       </header>
 
@@ -493,6 +494,18 @@
     <script>
       (function () {
         "use strict";
+
+        // session 失效时自动跳转登录页
+        var _fetch = window.fetch;
+        window.fetch = function (url, opts) {
+          return _fetch.apply(this, arguments).then(function (resp) {
+            if (resp.status === 401) {
+              window.location.href = "/admin/login";
+              throw new Error("session expired");
+            }
+            return resp;
+          });
+        };
 
         var EFFORTS = ["", "none", "low", "medium", "high", "xhigh"];
         var EFFORT_LABELS = [
@@ -978,6 +991,13 @@
             });
         });
         $("serviceUrl").addEventListener("input", renderSnippet);
+        $("btnLogout").addEventListener("click", function () {
+          fetch("/admin/logout", { method: "POST", redirect: "manual" }).then(
+            function () {
+              window.location.href = "/admin/login";
+            },
+          );
+        });
 
         loadStatus();
         loadConfig();
