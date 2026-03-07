@@ -20,6 +20,10 @@ services:
       LOG_LEVEL: "info"
       UPSTREAM_TIMEOUT_SECS: "300"
       DISABLE_RESPONSE_STORAGE: "1"
+      # 持久化目录（保存 runtime_config.json，重启不丢配置和密钥）
+      DATA_DIR: "/data"
+    volumes:
+      - ./data:/data
     restart: unless-stopped
     # 如果 sub2api 也在同一个 compose 里：
     # networks:

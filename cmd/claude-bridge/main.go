@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,9 +18,9 @@ import (
 )
 
 const (
-	shutdownTimeout   = 10 * time.Second
-	readHeaderTimeout = 10 * time.Second
-	configFilePath    = "runtime_config.json"
+	shutdownTimeout      = 10 * time.Second
+	readHeaderTimeout    = 10 * time.Second
+	defaultConfigFileDir = ""
 )
 
 func main() {
@@ -29,6 +31,12 @@ func main() {
 	}
 
 	logger := logging.NewLogger(cfg.LogLevel)
+
+	// 配置文件路径：DATA_DIR 环境变量指定持久化目录，默认当前目录
+	configFilePath := "runtime_config.json"
+	if dir := strings.TrimSpace(os.Getenv("DATA_DIR")); dir != "" {
+		configFilePath = filepath.Join(dir, "runtime_config.json")
+	}
 
 	// 创建运行时配置（支持热更新 + JSON 持久化）
 	rtCfg, err := config.NewRuntimeConfig(cfg, configFilePath)
