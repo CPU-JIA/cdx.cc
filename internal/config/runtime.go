@@ -66,8 +66,10 @@ func NewRuntimeConfig(cfg Config, filePath string) (*RuntimeConfig, error) {
 		changed = true
 	}
 
-	// 管理面板密码：独立于 AuthToken，首次启动自动生成
-	if rc.data.AdminPassword == "" || rc.data.AdminPassword == rc.data.AuthToken {
+	// 管理面板密码：独立于 AuthToken，格式必须为 sk-cdx.cc- 前缀
+	if rc.data.AdminPassword == "" ||
+		rc.data.AdminPassword == rc.data.AuthToken ||
+		!strings.HasPrefix(rc.data.AdminPassword, "sk-cdx.cc-") {
 		rc.data.AdminPassword = generatePassword()
 		changed = true
 	}
