@@ -57,10 +57,9 @@ func NewRuntimeConfig(cfg Config, filePath string) (*RuntimeConfig, error) {
 		return nil, err
 	}
 
-	// 安全校验：AuthToken 不能和上游 API Key 相同，也必须以 sk-cdx.cc- 为前缀
+	// 安全校验：AuthToken 为空或与上游 API Key 相同时自动重新生成
 	needRegen := rc.data.AuthToken == "" ||
-		(rc.data.Upstream.APIKey != "" && rc.data.AuthToken == rc.data.Upstream.APIKey) ||
-		!strings.HasPrefix(rc.data.AuthToken, "sk-cdx.cc-")
+		(rc.data.Upstream.APIKey != "" && rc.data.AuthToken == rc.data.Upstream.APIKey)
 	if needRegen {
 		rc.data.AuthToken = generateToken()
 		if err := rc.saveToFile(); err != nil {

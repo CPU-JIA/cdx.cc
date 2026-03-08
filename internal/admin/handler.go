@@ -279,11 +279,6 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token 不能和上游 API Key 相同", http.StatusBadRequest)
 			return
 		}
-		// 强制 sk-cdx.cc- 前缀
-		if newToken != "" && !strings.HasPrefix(newToken, "sk-cdx.cc-") {
-			http.Error(w, "auth token 必须以 sk-cdx.cc- 为前缀", http.StatusBadRequest)
-			return
-		}
 		current.AuthToken = newToken
 	}
 
