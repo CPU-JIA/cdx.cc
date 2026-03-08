@@ -211,11 +211,11 @@ func generateToken() string {
 	return "sk-cdx.cc-" + hex.EncodeToString(b)
 }
 
-// generatePassword 生成随机管理密码（cdx- 前缀 + 12 位 hex）
+// generatePassword 生成随机管理密码（sk-cdx.cc- 前缀 + 12 位 hex）
 func generatePassword() string {
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
-		return "cdx-" + fmt.Sprintf("%x", os.Getpid())
+		return "sk-cdx.cc-" + fmt.Sprintf("%x%x", os.Getpid(), os.Getppid())
 	}
-	return "cdx-" + hex.EncodeToString(b)
+	return "sk-cdx.cc-" + hex.EncodeToString(b)
 }
