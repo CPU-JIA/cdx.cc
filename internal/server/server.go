@@ -15,6 +15,7 @@ import (
 	"cdx.cc/claude-bridge/internal/config"
 	"cdx.cc/claude-bridge/internal/sse"
 	"cdx.cc/claude-bridge/internal/store"
+	"cdx.cc/claude-bridge/internal/tokenizer"
 	"cdx.cc/claude-bridge/internal/transform"
 	"cdx.cc/claude-bridge/internal/types"
 	"cdx.cc/claude-bridge/internal/upstream"
@@ -99,11 +100,8 @@ func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 估算 token 数：JSON 字节数 / 4（英文约 4 字符/token，中文约 2 字符/token，取中间值）
-	estimated := len(body) / 3
-	if estimated < 1 {
-		estimated = 1
-	}
+	// 用 tiktoken 精确计算 input token 数
+	estimated := tokenizer.CountRequestBody(body)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -156,7 +154,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if req.Stream {
-		s.handleStream(ctx, w, r, oaReq, req.Model, len(body))
+		s.handleStream(ctx, w, r, oaReq, req.Model, body)
 		return
 	}
 
@@ -202,7 +200,7 @@ func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *
 	}
 }
 
-func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest, requestModel string, requestBodyLen int) {
+func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest, requestModel string, body []byte) {
 	headers := s.forwardHeaders(r)
 	oaReq.Stream = true
 
@@ -221,11 +219,8 @@ func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 
 	// 流式模式：header 必须在第一次 write 前设置
-	// 使用请求体大小估算 input token 数
-	estimatedInputTokens := requestBodyLen / 3
-	if estimatedInputTokens < 1 {
-		estimatedInputTokens = 1
-	}
+	// 用 tiktoken 精确计算 input token 数
+	estimatedInputTokens := tokenizer.CountRequestBody(body)
 	s.setAnthropicHeaders(w, estimatedInputTokens, 0)
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -318,9 +313,8 @@ func (s *Server) validateAuth(r *http.Request) bool {
 // setAnthropicHeaders 设置 Anthropic 兼容的 rate limit 和 request-id 响应头
 // Claude Code 依赖这些头来显示状态栏的 token 计数和上下文百分比
 func (s *Server) setAnthropicHeaders(w http.ResponseWriter, inputTokens, outputTokens int) {
-	// 上下文窗口大小（1M context window）
-	const contextLimit = 1048576
-	const outputLimit = 32000
+	contextLimit := s.cfg.ContextLimit
+	outputLimit := s.cfg.OutputLimit
 	tokensLimit := contextLimit + outputLimit
 	tokensUsed := inputTokens + outputTokens
 	tokensRemaining := tokensLimit - tokensUsed

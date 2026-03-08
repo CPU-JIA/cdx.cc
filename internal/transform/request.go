@@ -89,6 +89,9 @@ func DecodeAnthropicRequest(body []byte, mode config.Mode) (types.AnthropicMessa
 	if err := consume("speed", &req.Speed, false); err != nil {
 		return req, err
 	}
+	if err := consume("context_management", &req.ContextManagement, false); err != nil {
+		return req, err
+	}
 
 	if mode == config.ModeStrict && len(raw) > 0 {
 		keys := make([]string, 0, len(raw))
@@ -219,6 +222,14 @@ func TransformAnthropicToOpenAI(req types.AnthropicMessageRequest, mode config.M
 		inputItems = append(inputItems, items...)
 	}
 	oa.Input = inputItems
+
+	// Anthropic compaction beta → OpenAI context_management 转换
+	if len(req.ContextManagement) > 0 {
+		oaCtxMgmt := mapContextManagement(req.ContextManagement)
+		if oaCtxMgmt != nil {
+			oa.ContextManagement = oaCtxMgmt
+		}
+	}
 
 	return oa, nil
 }
@@ -566,4 +577,43 @@ func mapThinkingToReasoning(raw json.RawMessage) (*types.OpenAIReasoning, error)
 	default:
 		return nil, fmt.Errorf("unsupported thinking.type: %s", thinkingType)
 	}
+}
+
+// mapContextManagement 将 Anthropic 服务端 compaction beta 转换为 OpenAI context_management 格式
+// Anthropic: {"edits": [{"type": "compact_20260112", "trigger_tokens": N}]}
+// OpenAI:    [{"type": "compaction", "compact_threshold": N}]
+func mapContextManagement(raw json.RawMessage) json.RawMessage {
+	var anthCM struct {
+		Edits []struct {
+			Type          string `json:"type"`
+			TriggerTokens int    `json:"trigger_tokens,omitempty"`
+		} `json:"edits"`
+	}
+	if err := json.Unmarshal(raw, &anthCM); err != nil {
+		log.Printf("WARN: failed to parse context_management: %v", err)
+		return nil
+	}
+
+	var oaItems []map[string]any
+	for _, edit := range anthCM.Edits {
+		if !strings.HasPrefix(edit.Type, "compact") {
+			continue
+		}
+		item := map[string]any{"type": "compaction"}
+		if edit.TriggerTokens > 0 {
+			item["compact_threshold"] = edit.TriggerTokens
+		} else {
+			item["compact_threshold"] = 160000 // 默认阈值
+		}
+		oaItems = append(oaItems, item)
+	}
+
+	if len(oaItems) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(oaItems)
+	if err != nil {
+		return nil
+	}
+	return data
 }

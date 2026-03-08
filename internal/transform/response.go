@@ -58,6 +58,10 @@ func TransformOpenAIToAnthropic(resp types.OpenAIResponse, mode config.Mode, req
 		case "web_search_call":
 			blocks := openAIWebSearchToBlocks(item, allAnnotations)
 			content = append(content, blocks...)
+		case "compaction":
+			// 服务端 compaction 结果 → 静默跳过，不透传给客户端
+			log.Printf("INFO: skipping compaction output item from upstream")
+			continue
 		default:
 			if mode == config.ModeStrict {
 				return types.AnthropicMessageResponse{}, fmt.Errorf("unsupported output item type: %s", item.Type)

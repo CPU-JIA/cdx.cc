@@ -22,6 +22,7 @@ type OpenAIResponsesRequest struct {
 	Store              *bool             `json:"store,omitempty"`
 	PreviousResponseID string            `json:"previous_response_id,omitempty"`
 	Reasoning          *OpenAIReasoning  `json:"reasoning,omitempty"`
+	ContextManagement  json.RawMessage   `json:"context_management,omitempty"` // 服务端 compaction
 }
 
 type OpenAIInputItem struct {

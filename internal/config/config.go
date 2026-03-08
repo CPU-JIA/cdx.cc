@@ -21,6 +21,8 @@ const (
 	defaultMaxBodyMB       = 10
 	defaultLogLevel        = "info"
 	defaultUpstreamBaseURL = "https://api.openai.com"
+	defaultContextLimit    = 1048576 // 1M tokens
+	defaultOutputLimit     = 32000
 )
 
 // ModelMapping 定义一条模型映射规则
@@ -39,6 +41,8 @@ type Config struct {
 	RedisURL        string
 	LogLevel        string
 	ModelMap        map[string]ModelMapping // 入站模型名 → 映射规则
+	ContextLimit    int                     // 上下文窗口大小（token 数）
+	OutputLimit     int                     // 最大输出 token 数
 }
 
 func Load() (Config, error) {
@@ -73,6 +77,16 @@ func Load() (Config, error) {
 	}
 
 	cfg.ModelMap = parseModelMap(os.Getenv("MODEL_MAP"))
+
+	// 上下文窗口配置
+	cfg.ContextLimit = defaultContextLimit
+	if v, err := strconv.Atoi(os.Getenv("CONTEXT_LIMIT")); err == nil && v > 0 {
+		cfg.ContextLimit = v
+	}
+	cfg.OutputLimit = defaultOutputLimit
+	if v, err := strconv.Atoi(os.Getenv("OUTPUT_LIMIT")); err == nil && v > 0 {
+		cfg.OutputLimit = v
+	}
 
 	return cfg, nil
 }

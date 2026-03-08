@@ -7,6 +7,8 @@ Anthropic Messages API → OpenAI Responses API 协议转换代理。让 Codex /
 - 完整协议转换：Anthropic Messages API ↔ OpenAI Responses API
 - Web 管理面板：动态配置上游、模型映射、认证，无需重启
 - 流式 SSE 转换：逐事件实时桥接，支持 thinking / tool_use / web_search
+- Token 精确计算：tiktoken BPE (o200k_base)，CC 状态栏上下文百分比依赖此数据
+- 服务端 Compaction：Anthropic beta ↔ OpenAI context_management 协议转换
 - 热更新配置：JSON 持久化，Docker 友好
 - 零配置启动：开箱即用，默认上游 `https://api.openai.com`
 
@@ -85,6 +87,8 @@ docker compose up -d
 | `MODEL_MAP`                | —                        | 模型映射（格式：`claude-opus-4-6=gpt-5.4:xhigh,...`） |
 | `UPSTREAM_TIMEOUT_SECS`    | `120`                    | 上游请求超时秒数                                      |
 | `MAX_BODY_MB`              | `10`                     | 最大请求体 (MB)                                       |
+| `CONTEXT_LIMIT`            | `1048576`                | 上下文窗口大小（token 数），影响 rate-limit 头        |
+| `OUTPUT_LIMIT`             | `32000`                  | 最大输出 token 数，影响 rate-limit 头                 |
 | `DISABLE_RESPONSE_STORAGE` | —                        | 设置任意值则 `store=false`                            |
 | `LOG_LEVEL`                | `info`                   | `debug` / `info` / `warn` / `error`                   |
 | `REDIS_URL`                | —                        | Redis 连接字符串（留空用内存存储）                    |
@@ -98,25 +102,26 @@ docker compose up -d
 | 端点                                | 说明                        |
 | ----------------------------------- | --------------------------- |
 | `POST /v1/messages`                 | 主消息 API（流式 + 非流式） |
-| `POST /v1/messages/count_tokens`    | Token 计数（估算）          |
+| `POST /v1/messages/count_tokens`    | Token 计数（tiktoken BPE）  |
 | `GET /api/claude_code_penguin_mode` | /fast 模式支持              |
 | `GET /admin`                        | 管理面板                    |
 | `GET /health`                       | 健康检查                    |
 
 ### 请求转换
 
-| Anthropic (入)                   | OpenAI (出)                                  |
-| -------------------------------- | -------------------------------------------- |
-| `/v1/messages`                   | `/v1/responses`                              |
-| `tool_use` / `tool_result`       | `function_call` / `function_call_output`     |
-| `thinking.type = enabled`        | `reasoning.effort` (按 budget_tokens 推算)   |
-| `thinking.type = adaptive`       | `reasoning.effort = high` + `summary = auto` |
-| `thinking.type = disabled`       | `reasoning.effort = none`                    |
-| `image` (base64 / URL)           | `input_image`                                |
-| `system` (string / blocks)       | `instructions`                               |
-| `web_search` 工具                | `web_search` (OpenAI GA)                     |
-| `cache_control`                  | 剥离                                         |
-| 历史 `thinking` / `signature` 块 | 剥离                                         |
+| Anthropic (入)                    | OpenAI (出)                                  |
+| --------------------------------- | -------------------------------------------- |
+| `/v1/messages`                    | `/v1/responses`                              |
+| `tool_use` / `tool_result`        | `function_call` / `function_call_output`     |
+| `thinking.type = enabled`         | `reasoning.effort` (按 budget_tokens 推算)   |
+| `thinking.type = adaptive`        | `reasoning.effort = high` + `summary = auto` |
+| `thinking.type = disabled`        | `reasoning.effort = none`                    |
+| `image` (base64 / URL)            | `input_image`                                |
+| `system` (string / blocks)        | `instructions`                               |
+| `web_search` 工具                 | `web_search` (OpenAI GA)                     |
+| `cache_control`                   | 剥离                                         |
+| `context_management` (compaction) | OpenAI `context_management` (compaction)     |
+| 历史 `thinking` / `signature` 块  | 剥离                                         |
 
 ### 流式事件映射
 
@@ -134,7 +139,7 @@ docker compose up -d
 
 ### 响应头
 
-Bridge 设置 Anthropic 兼容的 rate-limit 响应头（`anthropic-ratelimit-*`），Claude Code 依赖这些头显示状态栏的上下文百分比和 Token 计数。
+Bridge 设置 Anthropic 兼容的 rate-limit 响应头（`anthropic-ratelimit-*`），Claude Code 依赖这些头显示状态栏的上下文百分比和 Token 计数。上下文窗口大小通过 `CONTEXT_LIMIT` 和 `OUTPUT_LIMIT` 环境变量配置。
 
 ## 架构
 
@@ -146,7 +151,7 @@ Claude Code CLI
 │         cdx.cc Bridge          │  :8787
 │                                │
 │  /v1/messages          → 协议转换 → /v1/responses
-│  /v1/messages/count_tokens → Token 估算
+│  /v1/messages/count_tokens → tiktoken BPE 精确计算
 │  /admin                → 管理面板 (嵌入式 HTML)
 │  /health               → 健康检查
 │                                │
@@ -167,7 +172,8 @@ Upstream (Codex / GPT / 兼容 API)
 - [x] /fast 模式
 - [x] Web Search 工具映射
 - [x] 模型名称保持（CC 功能检测依赖模型名子字符串）
-- [x] Token 计数端点
+- [x] Token 计数端点（tiktoken BPE 精确计算）
+- [x] 服务端 Compaction 协议转换（Anthropic beta ↔ OpenAI）
 - [x] 管理面板热更新配置
 - [x] Docker 部署
 

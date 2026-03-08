@@ -147,6 +147,9 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 				state.webSearchByOutIdx[payload.OutputIndex] = ws
 			}
 			return nil
+		case "compaction":
+			// 服务端 compaction → 静默跳过
+			return nil
 		default:
 			if mode == config.ModeStrict {
 				return fmt.Errorf("unsupported output item: %s", payload.Item.Type)
@@ -285,6 +288,9 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 			}
 		case "web_search_call":
 			return handleWebSearchDone(state, writer, payload.Item)
+		case "compaction":
+			// 服务端 compaction 完成 → 静默跳过
+			return nil
 		}
 		return nil
 	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
