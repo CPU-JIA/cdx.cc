@@ -14,10 +14,11 @@ import (
 
 // RuntimeData 存储运行时可变配置
 type RuntimeData struct {
-	Upstream   UpstreamConfig          `json:"upstream"`
-	Models     map[string]ModelMapping `json:"models,omitempty"`
-	AuthToken  string                  `json:"auth_token,omitempty"`
-	ServiceURL string                  `json:"service_url,omitempty"` // 对外访问地址（如 https://cdx.cc）
+	Upstream      UpstreamConfig          `json:"upstream"`
+	Models        map[string]ModelMapping `json:"models,omitempty"`
+	AuthToken     string                  `json:"auth_token,omitempty"`     // 客户端 API 连接密钥
+	AdminPassword string                  `json:"admin_password,omitempty"` // 管理面板登录密码（独立于 AuthToken）
+	ServiceURL    string                  `json:"service_url,omitempty"`    // 对外访问地址（如 https://cdx.cc）
 }
 
 // UpstreamConfig 上游服务配置
@@ -58,12 +59,22 @@ func NewRuntimeConfig(cfg Config, filePath string) (*RuntimeConfig, error) {
 	}
 
 	// 安全校验：AuthToken 为空或与上游 API Key 相同时自动重新生成
-	needRegen := rc.data.AuthToken == "" ||
-		(rc.data.Upstream.APIKey != "" && rc.data.AuthToken == rc.data.Upstream.APIKey)
-	if needRegen {
+	changed := false
+	if rc.data.AuthToken == "" ||
+		(rc.data.Upstream.APIKey != "" && rc.data.AuthToken == rc.data.Upstream.APIKey) {
 		rc.data.AuthToken = generateToken()
+		changed = true
+	}
+
+	// 管理面板密码：独立于 AuthToken，首次启动自动生成
+	if rc.data.AdminPassword == "" || rc.data.AdminPassword == rc.data.AuthToken {
+		rc.data.AdminPassword = generatePassword()
+		changed = true
+	}
+
+	if changed {
 		if err := rc.saveToFile(); err != nil {
-			return nil, fmt.Errorf("failed to save generated auth token: %w", err)
+			return nil, fmt.Errorf("failed to save config: %w", err)
 		}
 	}
 
@@ -76,9 +87,10 @@ func (rc *RuntimeConfig) Get() RuntimeData {
 	defer rc.mu.RUnlock()
 
 	snapshot := RuntimeData{
-		Upstream:   rc.data.Upstream,
-		AuthToken:  rc.data.AuthToken,
-		ServiceURL: rc.data.ServiceURL,
+		Upstream:      rc.data.Upstream,
+		AuthToken:     rc.data.AuthToken,
+		AdminPassword: rc.data.AdminPassword,
+		ServiceURL:    rc.data.ServiceURL,
 	}
 	if rc.data.Models != nil {
 		snapshot.Models = make(map[string]ModelMapping, len(rc.data.Models))
@@ -111,11 +123,18 @@ func (rc *RuntimeConfig) GetUpstream() (baseURL, apiKey string) {
 	return rc.data.Upstream.BaseURL, rc.data.Upstream.APIKey
 }
 
-// GetAuthToken 返回当前 Auth Token
+// GetAuthToken 返回当前 Auth Token（客户端 API 连接用）
 func (rc *RuntimeConfig) GetAuthToken() string {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	return rc.data.AuthToken
+}
+
+// GetAdminPassword 返回管理面板登录密码
+func (rc *RuntimeConfig) GetAdminPassword() string {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.data.AdminPassword
 }
 
 // Update 原子更新配置并持久化到 JSON 文件
@@ -158,6 +177,9 @@ func (rc *RuntimeConfig) loadFromFile() error {
 	if data.AuthToken != "" {
 		rc.data.AuthToken = data.AuthToken
 	}
+	if data.AdminPassword != "" {
+		rc.data.AdminPassword = data.AdminPassword
+	}
 	if data.ServiceURL != "" {
 		rc.data.ServiceURL = strings.TrimRight(data.ServiceURL, "/")
 	}
@@ -187,4 +209,13 @@ func generateToken() string {
 		return "sk-cdx.cc-" + fmt.Sprintf("%x", os.Getpid())
 	}
 	return "sk-cdx.cc-" + hex.EncodeToString(b)
+}
+
+// generatePassword 生成随机管理密码（cdx- 前缀 + 12 位 hex）
+func generatePassword() string {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		return "cdx-" + fmt.Sprintf("%x", os.Getpid())
+	}
+	return "cdx-" + hex.EncodeToString(b)
 }

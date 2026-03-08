@@ -92,9 +92,9 @@ func (h *Handler) createSessionCookie(token string) *http.Cookie {
 
 // validateSession 验证 session cookie 的签名和有效期
 func (h *Handler) validateSession(r *http.Request) bool {
-	token := h.rtCfg.GetAuthToken()
-	if token == "" {
-		return true // 未配置 token 则跳过认证
+	pwd := h.rtCfg.GetAdminPassword()
+	if pwd == "" {
+		return true // 未配置密码则跳过认证
 	}
 
 	cookie, err := r.Cookie(cookieName)
@@ -115,9 +115,9 @@ func (h *Handler) validateSession(r *http.Request) bool {
 		return false
 	}
 
-	// 重新计算 HMAC 比对（token 变更后旧 session 自动失效）
+	// 重新计算 HMAC 比对（密码变更后旧 session 自动失效）
 	mac := hmac.New(sha256.New, h.sessionSecret)
-	mac.Write([]byte(token + "." + parts[0]))
+	mac.Write([]byte(pwd + "." + parts[0]))
 	expected := hex.EncodeToString(mac.Sum(nil))
 
 	return hmac.Equal([]byte(parts[1]), []byte(expected))
@@ -126,7 +126,7 @@ func (h *Handler) validateSession(r *http.Request) bool {
 // requireAuth 认证中间件：API 返回 401，页面重定向 302
 func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.rtCfg.GetAuthToken() == "" || h.validateSession(r) {
+		if h.rtCfg.GetAdminPassword() == "" || h.validateSession(r) {
 			next(w, r)
 			return
 		}
@@ -144,8 +144,7 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // handleLoginPage 渲染登录页
 func (h *Handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	// 未配置 token 或已认证则直接进入管理面板
-	if h.rtCfg.GetAuthToken() == "" || h.validateSession(r) {
+	if h.rtCfg.GetAdminPassword() == "" || h.validateSession(r) {
 		http.Redirect(w, r, "/admin", http.StatusFound)
 		return
 	}
@@ -159,16 +158,16 @@ func (h *Handler) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inputToken := r.FormValue("token")
-	expectedToken := h.rtCfg.GetAuthToken()
+	inputPwd := r.FormValue("token")
+	expectedPwd := h.rtCfg.GetAdminPassword()
 
-	if subtle.ConstantTimeCompare([]byte(inputToken), []byte(expectedToken)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(inputPwd), []byte(expectedPwd)) != 1 {
 		time.Sleep(500 * time.Millisecond) // 防暴力破解
-		h.renderLoginPage(w, "Token 无效，请重试")
+		h.renderLoginPage(w, "密码无效，请重试")
 		return
 	}
 
-	http.SetCookie(w, h.createSessionCookie(expectedToken))
+	http.SetCookie(w, h.createSessionCookie(expectedPwd))
 	http.Redirect(w, r, "/admin", http.StatusFound)
 }
 
@@ -202,12 +201,13 @@ func (h *Handler) servePage(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-// configResponse GET 返回的配置结构（上游 API Key 脱敏，Auth Token 完整返回）
+// configResponse GET 返回的配置结构
 type configResponse struct {
-	Upstream   upstreamResponse               `json:"upstream"`
-	Models     map[string]config.ModelMapping `json:"models,omitempty"`
-	AuthToken  string                         `json:"auth_token"`
-	ServiceURL string                         `json:"service_url"`
+	Upstream      upstreamResponse               `json:"upstream"`
+	Models        map[string]config.ModelMapping `json:"models,omitempty"`
+	AuthToken     string                         `json:"auth_token"`
+	AdminPassword string                         `json:"admin_password"`
+	ServiceURL    string                         `json:"service_url"`
 }
 
 type upstreamResponse struct {
@@ -217,10 +217,11 @@ type upstreamResponse struct {
 
 // configRequest PUT 接收的配置结构
 type configRequest struct {
-	Upstream   *upstreamRequest               `json:"upstream,omitempty"`
-	Models     map[string]config.ModelMapping `json:"models,omitempty"`
-	AuthToken  *string                        `json:"auth_token,omitempty"`  // nil=不修改, ""=清除, "xxx"=设置新值
-	ServiceURL *string                        `json:"service_url,omitempty"` // nil=不修改
+	Upstream      *upstreamRequest               `json:"upstream,omitempty"`
+	Models        map[string]config.ModelMapping `json:"models,omitempty"`
+	AuthToken     *string                        `json:"auth_token,omitempty"`     // nil=不修改
+	AdminPassword *string                        `json:"admin_password,omitempty"` // nil=不修改
+	ServiceURL    *string                        `json:"service_url,omitempty"`    // nil=不修改
 }
 
 type upstreamRequest struct {
@@ -236,9 +237,10 @@ func (h *Handler) getConfig(w http.ResponseWriter, r *http.Request) {
 			BaseURL: data.Upstream.BaseURL,
 			APIKey:  maskAPIKey(data.Upstream.APIKey),
 		},
-		Models:     data.Models,
-		AuthToken:  data.AuthToken,
-		ServiceURL: data.ServiceURL,
+		Models:        data.Models,
+		AuthToken:     data.AuthToken,
+		AdminPassword: data.AdminPassword,
+		ServiceURL:    data.ServiceURL,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -279,7 +281,22 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth token 不能和上游 API Key 相同", http.StatusBadRequest)
 			return
 		}
+		// 安全校验：auth_token 不能和 admin_password 相同
+		if newToken != "" && newToken == current.AdminPassword {
+			http.Error(w, "auth token 不能和管理密码相同", http.StatusBadRequest)
+			return
+		}
 		current.AuthToken = newToken
+	}
+
+	// 合并管理密码
+	if req.AdminPassword != nil {
+		newPwd := *req.AdminPassword
+		if newPwd != "" && newPwd == current.AuthToken {
+			http.Error(w, "管理密码不能和 auth token 相同", http.StatusBadRequest)
+			return
+		}
+		current.AdminPassword = newPwd
 	}
 
 	// 合并服务地址
@@ -379,7 +396,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <div class="login-box">
 <h1><span class="prompt">&gt;_</span> cdx.cc</h1>
 <form method="POST" action="/admin/login">
-<input type="password" name="token" placeholder="Auth Token" autofocus required>
+<input type="password" name="token" placeholder="管理密码" autofocus required>
 <button type="submit">登录</button>
 </form>
 {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}

@@ -472,7 +472,16 @@
           <button class="btn btn-sm" id="btnGenToken">生成新密钥</button>
         </div>
         <p class="sub-label" style="margin-left: 92px; margin-bottom: 16px">
-          Claude Code 连接本 Bridge 使用的密钥，自动生成
+          Claude Code 连接本 Bridge 使用的密钥（可分享给用户）
+        </p>
+        <div class="form-row">
+          <label>管理密码</label>
+          <input type="text" id="adminPassword" readonly />
+          <button class="btn btn-sm" id="btnCopyAdminPwd">复制</button>
+          <button class="btn btn-sm" id="btnGenAdminPwd">重新生成</button>
+        </div>
+        <p class="sub-label" style="margin-left: 92px; margin-bottom: 16px">
+          登录管理面板使用的密码（仅管理员持有，与 Auth Token 独立）
         </p>
 
         <div class="snippet-tabs">
@@ -533,6 +542,7 @@
         var upstreamModels = [];
         var originalApiKey = "";
         var currentAuthToken = "";
+        var currentAdminPassword = "";
         var currentTab = "bash";
 
         function $(id) {
@@ -794,6 +804,8 @@
 
               currentAuthToken = data.auth_token || "";
               $("authToken").value = currentAuthToken;
+              currentAdminPassword = data.admin_password || "";
+              $("adminPassword").value = currentAdminPassword;
               $("serviceUrl").value = data.service_url || "";
               renderSnippet();
 
@@ -933,6 +945,33 @@
             });
         }
 
+        function generateNewAdminPwd() {
+          var arr = new Uint8Array(6);
+          crypto.getRandomValues(arr);
+          var hex = "";
+          for (var i = 0; i < arr.length; i++) {
+            hex += arr[i].toString(16).padStart(2, "0");
+          }
+          var newPwd = "cdx-" + hex;
+
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ admin_password: newPwd }),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("新管理密码已生成，下次登录使用新密码", "success");
+              loadConfig();
+            })
+            .catch(function (e) {
+              toast("生成失败: " + e.message, "error");
+            });
+        }
+
         // 主题切换
         function applyTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
@@ -968,6 +1007,10 @@
           copyText(currentAuthToken);
         });
         $("btnGenToken").addEventListener("click", generateNewToken);
+        $("btnCopyAdminPwd").addEventListener("click", function () {
+          copyText(currentAdminPassword);
+        });
+        $("btnGenAdminPwd").addEventListener("click", generateNewAdminPwd);
         $("btnCopySnippet").addEventListener("click", function () {
           copyText($("snippetCode").textContent);
         });
