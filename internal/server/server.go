@@ -61,6 +61,7 @@ func New(cfg config.Config, rtCfg *config.RuntimeConfig, logger *slog.Logger) (*
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/health", s.handleHealth)
+	r.Get("/v1/models", s.handleModels)
 	r.Post("/v1/messages", s.handleMessages)
 	r.Post("/v1/messages/count_tokens", s.handleCountTokens)
 
@@ -106,6 +107,36 @@ func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]int{"input_tokens": estimated})
+}
+
+// handleModels 返回已映射的入站模型列表（OpenAI /v1/models 兼容格式）
+// Cherry Studio、Chatbox 等第三方客户端通过此端点获取可用模型
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	modelMap := s.rtCfg.GetModelMap()
+
+	type modelEntry struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		OwnedBy string `json:"owned_by"`
+	}
+
+	data := make([]modelEntry, 0, len(modelMap))
+	for name := range modelMap {
+		data = append(data, modelEntry{
+			ID:      name,
+			Object:  "model",
+			Created: 0,
+			OwnedBy: "cdx.cc",
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"object": "list",
+		"data":   data,
+	})
 }
 
 func (s *Server) handlePenguinMode(w http.ResponseWriter, r *http.Request) {
