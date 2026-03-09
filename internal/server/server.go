@@ -109,33 +109,41 @@ func (s *Server) handleCountTokens(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]int{"input_tokens": estimated})
 }
 
-// handleModels 返回已映射的入站模型列表（OpenAI /v1/models 兼容格式）
-// Cherry Studio、Chatbox 等第三方客户端通过此端点获取可用模型
+// handleModels 返回已映射的入站模型列表（Anthropic /v1/models 格式）
+// bridge 入站是 Anthropic 协议，第三方客户端用 Claude API 兼容模式接入
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	modelMap := s.rtCfg.GetModelMap()
 
 	type modelEntry struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
+		Type        string `json:"type"`
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+		CreatedAt   string `json:"created_at"`
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
 	data := make([]modelEntry, 0, len(modelMap))
+	var firstID, lastID string
 	for name := range modelMap {
+		if firstID == "" {
+			firstID = name
+		}
+		lastID = name
 		data = append(data, modelEntry{
-			ID:      name,
-			Object:  "model",
-			Created: 0,
-			OwnedBy: "cdx.cc",
+			Type:        "model",
+			ID:          name,
+			DisplayName: name,
+			CreatedAt:   now,
 		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"object": "list",
-		"data":   data,
+		"data":     data,
+		"has_more": false,
+		"first_id": firstID,
+		"last_id":  lastID,
 	})
 }
 
