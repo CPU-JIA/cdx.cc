@@ -321,6 +321,9 @@ func messageToInputItems(msg types.AnthropicMessage, mode config.Mode, callKinds
 			log.Printf("WARN: stripping %s block from history message", block.Type)
 			continue
 		case "text":
+			if role == roleAssistant && isNonFinalAssistantPhase(block.Phase) {
+				continue
+			}
 			if current == nil {
 				current = &types.OpenAIInputItem{Type: "message", Role: role}
 			}
@@ -963,24 +966,7 @@ func toolSearchResultBlockToInputItem(block types.AnthropicContentBlock, mode co
 }
 
 func classifyToolCallKind(name string) string {
-	switch strings.TrimSpace(strings.ToLower(name)) {
-	case "toolsearch", "tool_search", "toolsearchtool":
-		return "tool_search"
-	case "bash", "powershell":
-		return "local_shell_call"
-	case "filesearch", "file_search":
-		return "file_search_call"
-	case "computer", "computeruse":
-		return "computer_call"
-	case "mcp", "mcpcall":
-		return "mcp_call"
-	case "mcplisttools", "mcp_list_tools":
-		return "mcp_list_tools"
-	case "web_search":
-		return "web_search_call"
-	default:
-		return "function_call"
-	}
+	return "function_call"
 }
 
 func toolUseBlockToInputItem(block types.AnthropicContentBlock, mode config.Mode) (types.OpenAIInputItem, string, error) {
@@ -988,6 +974,7 @@ func toolUseBlockToInputItem(block types.AnthropicContentBlock, mode config.Mode
 	if kind == "" {
 		kind = classifyToolCallKind(block.Name)
 	}
+	kind = normalizeUnsafeSpecialToolKind(kind)
 	if restored, ok, err := storedResponseItemToInputItem(block, mode); ok || err != nil {
 		return restored, normalizedToolCallKind(restored.Type, kind), err
 	}
@@ -1075,6 +1062,9 @@ func storedResponseItemToInputItem(block types.AnthropicContentBlock, mode confi
 		}
 		return types.OpenAIInputItem{}, false, nil
 	}
+	if !isSafeStoredResponseItemType(item.Type) {
+		return types.OpenAIInputItem{}, false, nil
+	}
 	input, err := outputItemToInputItem(item)
 	if err != nil {
 		if mode == config.ModeStrict {
@@ -1083,6 +1073,37 @@ func storedResponseItemToInputItem(block types.AnthropicContentBlock, mode confi
 		return types.OpenAIInputItem{}, false, nil
 	}
 	return input, true, nil
+}
+
+func normalizeUnsafeSpecialToolKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "file_search_call", "computer_call", "mcp_call", "mcp_list_tools":
+		return "function_call"
+	default:
+		return kind
+	}
+}
+
+func isSafeStoredResponseItemType(itemType string) bool {
+	switch strings.TrimSpace(itemType) {
+	case "function_call",
+		"function_call_output",
+		"custom_tool_call",
+		"custom_tool_call_output",
+		"local_shell_call",
+		"tool_search_call",
+		"tool_search_output",
+		"computer_call_output",
+		"web_search_call",
+		"message",
+		"reasoning",
+		"compaction",
+		"compaction_summary",
+		"image_generation_call":
+		return true
+	default:
+		return false
+	}
 }
 
 func specialToolUseBlockToInputItem(block types.AnthropicContentBlock, itemType string) (types.OpenAIInputItem, error) {
@@ -1279,6 +1300,11 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func isNonFinalAssistantPhase(phase string) bool {
+	phase = strings.TrimSpace(strings.ToLower(phase))
+	return phase != "" && phase != "final_answer"
 }
 
 func firstString(values ...any) string {

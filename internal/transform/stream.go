@@ -29,6 +29,7 @@ type streamState struct {
 	nextIndex            int
 	textIndexByKey       map[string]int
 	textValueByKey       map[string]string
+	ignoredMessageItemID map[string]bool
 	toolIndexByItemID    map[string]int
 	toolIndexByOutput    map[int]int
 	closedIndex          map[int]bool
@@ -43,14 +44,15 @@ type streamState struct {
 
 func newStreamState() *streamState {
 	return &streamState{
-		textIndexByKey:    make(map[string]int),
-		textValueByKey:    make(map[string]string),
-		toolIndexByItemID: make(map[string]int),
-		toolIndexByOutput: make(map[int]int),
-		closedIndex:       make(map[int]bool),
-		thinkingIndex:     -1,
-		webSearchByItemID: make(map[string]*webSearchInfo),
-		webSearchByOutIdx: make(map[int]*webSearchInfo),
+		textIndexByKey:       make(map[string]int),
+		textValueByKey:       make(map[string]string),
+		ignoredMessageItemID: make(map[string]bool),
+		toolIndexByItemID:    make(map[string]int),
+		toolIndexByOutput:    make(map[int]int),
+		closedIndex:          make(map[int]bool),
+		thinkingIndex:        -1,
+		webSearchByItemID:    make(map[string]*webSearchInfo),
+		webSearchByOutIdx:    make(map[int]*webSearchInfo),
 	}
 }
 
@@ -120,6 +122,10 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 		}
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return err
+		}
+		if payload.Item.Type == "message" && isNonFinalAssistantPhase(payload.Item.Phase) {
+			state.ignoredMessageItemID[payload.Item.ID] = true
+			return nil
 		}
 		if err := ensureMessageStart(state, writer); err != nil {
 			return err
@@ -219,6 +225,9 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return err
 		}
+		if state.ignoredMessageItemID[payload.ItemID] {
+			return nil
+		}
 		if payload.Part.Type != "output_text" && payload.Part.Type != "text" {
 			return nil
 		}
@@ -244,6 +253,9 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			log.Printf("ERROR: Failed to parse output_text.delta: %v, data=%s", err, truncate(event.Data, 200))
 			return err
+		}
+		if state.ignoredMessageItemID[payload.ItemID] {
+			return nil
 		}
 		if err := ensureMessageStart(state, writer); err != nil {
 			return err
@@ -358,6 +370,9 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return err
 		}
+		if payload.Item.Type == "message" && state.ignoredMessageItemID[payload.Item.ID] {
+			return nil
+		}
 		switch payload.Item.Type {
 		case "function_call", "custom_tool_call":
 			idx, ok := state.toolIndexByItemID[payload.Item.ID]
@@ -457,6 +472,9 @@ func handleOpenAIEvent(event sse.Event, state *streamState, writer *sse.Writer, 
 			Part         types.OpenAIMessageContent `json:"part"`
 		}
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return nil
+		}
+		if state.ignoredMessageItemID[payload.ItemID] {
 			return nil
 		}
 		key := contentKey(payload.ItemID, payload.OutputIndex, payload.ContentIndex)

@@ -307,7 +307,7 @@ func TestToolSearchToolResultMapsToToolSearchOutput(t *testing.T) {
 	}
 }
 
-func TestToolUseMapsBashToLocalShellCallAndToolSearchToToolSearchCall(t *testing.T) {
+func TestToolUseMapsClaudeClientToolsToGenericFunctionCalls(t *testing.T) {
 	msg := types.AnthropicMessage{
 		Role: "assistant",
 		Content: json.RawMessage(`[
@@ -323,18 +323,18 @@ func TestToolUseMapsBashToLocalShellCallAndToolSearchToToolSearchCall(t *testing
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %#v", items)
 	}
-	if items[0].Type != "local_shell_call" || string(items[0].Action) == "" {
-		t.Fatalf("expected local_shell_call mapping, got %#v", items[0])
+	if items[0].Type != "function_call" || items[0].Name != "Bash" || string(items[0].Arguments) == "" {
+		t.Fatalf("expected Bash to stay a generic function_call, got %#v", items[0])
 	}
-	var action map[string]any
-	if err := json.Unmarshal(items[0].Action, &action); err != nil {
-		t.Fatalf("failed to decode local_shell action: %v", err)
+	var rawArgs string
+	if err := json.Unmarshal(items[0].Arguments, &rawArgs); err != nil {
+		t.Fatalf("failed to decode Bash arguments string: %v", err)
 	}
-	if _, ok := action["env"].(map[string]any); !ok {
-		t.Fatalf("expected local_shell action env object, got %#v", action)
+	if !strings.Contains(rawArgs, `"command":"pwd"`) {
+		t.Fatalf("unexpected Bash arguments: %q", rawArgs)
 	}
-	if items[1].Type != "tool_search_call" || string(items[1].Arguments) == "" {
-		t.Fatalf("expected tool_search_call mapping, got %#v", items[1])
+	if items[1].Type != "function_call" || items[1].Name != "ToolSearch" || string(items[1].Arguments) == "" {
+		t.Fatalf("expected ToolSearch to stay a generic function_call, got %#v", items[1])
 	}
 }
 
@@ -540,6 +540,24 @@ func TestTransformOpenAIToAnthropicPreservesContextManagement(t *testing.T) {
 	}
 }
 
+func TestMessageToInputItemsSkipsAssistantCommentaryPhaseHistory(t *testing.T) {
+	msg := types.AnthropicMessage{
+		Role: "assistant",
+		Content: json.RawMessage(`[
+			{"type":"text","text":"commentary","phase":"commentary"},
+			{"type":"text","text":"final","phase":"final_answer"}
+		]`),
+	}
+
+	items, err := messageToInputItems(msg, config.ModeStrict, map[string]string{})
+	if err != nil {
+		t.Fatalf("messageToInputItems() error = %v", err)
+	}
+	if len(items) != 1 || len(items[0].Content) != 1 || items[0].Content[0].Text != "final" {
+		t.Fatalf("expected only final assistant text to survive, got %#v", items)
+	}
+}
+
 func TestOpaqueResponsesOutputItemRoundTrips(t *testing.T) {
 	item := types.OpenAIOutputItem{
 		Type: "mystery_call",
@@ -663,26 +681,30 @@ func TestSpecialResponsesToolItemsRoundTripViaToolUseBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("messageToInputItems() error = %v", err)
 	}
-	if len(items) != 4 {
-		t.Fatalf("expected 4 input items, got %#v", items)
+	if len(items) != 6 {
+		t.Fatalf("expected 6 compatibility input items, got %#v", items)
 	}
-	if items[0].Type != "file_search_call" || string(items[0].Action) == "" {
-		t.Fatalf("expected file_search_call action preserved, got %#v", items[0])
+	if items[0].Type != "function_call" || items[0].Name != "FileSearch" {
+		t.Fatalf("expected file_search to fall back to function_call, got %#v", items[0])
 	}
-	if len(items[0].Queries) != 1 || items[0].Queries[0] != "golang bridge" || string(items[0].Results) == "" {
-		t.Fatalf("expected file_search metadata preserved, got %#v", items[0])
+	var fileSearchArgs string
+	if err := json.Unmarshal(items[0].Arguments, &fileSearchArgs); err != nil || !containsAll(fileSearchArgs, []string{`"query":"golang bridge"`, `"results"`}) {
+		t.Fatalf("expected file_search arguments to be preserved in generic form, got %#v err=%v", items[0], err)
 	}
-	if items[1].Type != "computer_call" || items[1].CallID != "call_computer_1" {
-		t.Fatalf("expected computer_call preserved, got %#v", items[1])
+	if items[1].Type != "function_call_output" || items[1].CallID != "fs_item_1" {
+		t.Fatalf("expected file_search result to fall back to function_call_output, got %#v", items[1])
 	}
-	if items[2].Type != "mcp_call" || items[2].Name != "fetch_doc" || string(items[2].ExtraFields["server_label"]) != `"docs-server"` {
-		t.Fatalf("expected mcp_call preserved, got %#v", items[2])
+	if items[2].Type != "function_call" || items[2].Name != "Computer" {
+		t.Fatalf("expected computer_call to fall back to function_call, got %#v", items[2])
 	}
-	if string(items[2].Error) == "" || string(items[2].Output.(json.RawMessage)) == "" {
-		t.Fatalf("expected mcp_call error/output preserved, got %#v", items[2])
+	if items[3].Type != "function_call" || items[3].Name != "fetch_doc" {
+		t.Fatalf("expected mcp_call to fall back to function_call, got %#v", items[3])
 	}
-	if items[3].Type != "mcp_list_tools" || items[3].ID != "mcp_list_1" || len(items[3].Tools) != 1 {
-		t.Fatalf("expected mcp_list_tools preserved, got %#v", items[3])
+	if items[4].Type != "function_call_output" || items[4].CallID != "mcp_item_1" {
+		t.Fatalf("expected mcp result to fall back to function_call_output, got %#v", items[4])
+	}
+	if items[5].Type != "function_call" || items[5].Name != "MCPListTools" {
+		t.Fatalf("expected mcp_list_tools to fall back to function_call, got %#v", items[5])
 	}
 }
 
@@ -727,8 +749,8 @@ func TestComputerCallOutputRoundTripsViaToolResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assistant messageToInputItems() error = %v", err)
 	}
-	if len(assistantItems) != 1 || assistantItems[0].Type != "computer_call" {
-		t.Fatalf("expected computer_call item, got %#v", assistantItems)
+	if len(assistantItems) != 1 || assistantItems[0].Type != "function_call" || assistantItems[0].Name != "Computer" {
+		t.Fatalf("expected computer call to fall back to function_call, got %#v", assistantItems)
 	}
 
 	userMsg := types.AnthropicMessage{
@@ -739,15 +761,8 @@ func TestComputerCallOutputRoundTripsViaToolResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user messageToInputItems() error = %v", err)
 	}
-	if len(userItems) != 1 || userItems[0].Type != "computer_call_output" {
-		t.Fatalf("expected computer_call_output item, got %#v", userItems)
-	}
-	outputMap, ok := userItems[0].Output.(map[string]any)
-	if !ok || outputMap["type"] != "computer_screenshot" || outputMap["image_url"] != "https://example.com/screen.png" {
-		t.Fatalf("unexpected computer_call_output payload: %#v", userItems[0].Output)
-	}
-	if string(userItems[0].ExtraFields["acknowledged_safety_checks"]) != `[{"id":"check_1"}]` {
-		t.Fatalf("expected safety checks to survive, got %#v", userItems[0].ExtraFields)
+	if len(userItems) != 1 || userItems[0].Type != "function_call_output" {
+		t.Fatalf("expected computer output to fall back to function_call_output, got %#v", userItems)
 	}
 }
 
@@ -821,11 +836,11 @@ func TestSpecialToolUseFallbackParsesQueriesResultsAndOutput(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %#v", items)
 	}
-	if items[0].Type != "file_search_call" || len(items[0].Queries) != 1 || items[0].Queries[0] != "bridge protocol" || string(items[0].Results) == "" {
-		t.Fatalf("expected file_search fallback fields, got %#v", items[0])
+	if items[0].Type != "function_call" || items[0].Name != "FileSearch" {
+		t.Fatalf("expected file_search to fall back to function_call, got %#v", items[0])
 	}
-	if items[1].Type != "mcp_call" || string(items[1].Error) == "" || items[1].Output == nil || string(items[1].ExtraFields["server_label"]) != `"docs-server"` {
-		t.Fatalf("expected mcp fallback fields, got %#v", items[1])
+	if items[1].Type != "function_call" || items[1].Name != "MCP" {
+		t.Fatalf("expected mcp to fall back to function_call, got %#v", items[1])
 	}
 }
 

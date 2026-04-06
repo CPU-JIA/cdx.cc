@@ -184,6 +184,9 @@ func TransformOpenAIToAnthropic(resp types.OpenAIResponse, mode config.Mode, req
 }
 
 func openAIMessageToBlocks(item types.OpenAIOutputItem, mode config.Mode) ([]types.AnthropicContentBlock, error) {
+	if isNonFinalAssistantPhase(item.Phase) {
+		return nil, nil
+	}
 	if len(item.Content) == 0 {
 		return nil, nil
 	}

@@ -229,6 +229,78 @@ func TestBridgeOpenAIStreamHandlesMcpCallArgumentDeltas(t *testing.T) {
 	}
 }
 
+func TestBridgeOpenAIStreamSkipsCommentaryMessagePhases(t *testing.T) {
+	events := make(chan sse.Event, 8)
+	events <- sse.Event{
+		Name: "response.created",
+		Data: []byte(`{"type":"response.created","response":{"id":"resp_commentary"}}`),
+	}
+	events <- sse.Event{
+		Name: "response.output_item.added",
+		Data: []byte(`{
+			"type":"response.output_item.added",
+			"output_index":0,
+			"item":{"type":"message","id":"msg_commentary","phase":"commentary","role":"assistant","content":[]}
+		}`),
+	}
+	events <- sse.Event{
+		Name: "response.content_part.added",
+		Data: []byte(`{
+			"type":"response.content_part.added",
+			"item_id":"msg_commentary",
+			"output_index":0,
+			"content_index":0,
+			"part":{"type":"output_text","text":""}
+		}`),
+	}
+	events <- sse.Event{
+		Name: "response.output_text.delta",
+		Data: []byte(`{
+			"type":"response.output_text.delta",
+			"item_id":"msg_commentary",
+			"output_index":0,
+			"content_index":0,
+			"delta":"internal commentary"
+		}`),
+	}
+	events <- sse.Event{
+		Name: "response.output_item.done",
+		Data: []byte(`{
+			"type":"response.output_item.done",
+			"item":{"type":"message","id":"msg_commentary","phase":"commentary","role":"assistant","content":[{"type":"output_text","text":"internal commentary"}]}
+		}`),
+	}
+	events <- sse.Event{
+		Name: "response.output_item.done",
+		Data: []byte(`{
+			"type":"response.output_item.done",
+			"item":{"type":"message","id":"msg_final","phase":"final_answer","role":"assistant","content":[{"type":"output_text","text":"final answer"}]}
+		}`),
+	}
+	events <- sse.Event{
+		Name: "response.completed",
+		Data: []byte(`{
+			"type":"response.completed",
+			"response":{"id":"resp_commentary","status":"completed","usage":{"input_tokens":8,"output_tokens":2}}
+		}`),
+	}
+	close(events)
+
+	var buf bytes.Buffer
+	writer := sse.NewWriter(&buf, nil)
+	if err := BridgeOpenAIStream(context.Background(), events, writer, config.ModeStrict, "claude-sonnet-4-6", 8, "standard", ""); err != nil {
+		t.Fatalf("BridgeOpenAIStream() error = %v", err)
+	}
+
+	output := buf.String()
+	if bytes.Contains(buf.Bytes(), []byte("internal commentary")) {
+		t.Fatalf("expected commentary phase to be suppressed, got %s", output)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("final answer")) {
+		t.Fatalf("expected final answer to remain, got %s", output)
+	}
+}
+
 func TestBridgeOpenAIStreamEmitsSpecialToolUseFromDone(t *testing.T) {
 	events := make(chan sse.Event, 4)
 	events <- sse.Event{
