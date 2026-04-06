@@ -1245,6 +1245,9 @@ func localShellActionFromToolUse(block types.AnthropicContentBlock, mode config.
 		input["workdir"],
 	)
 	envMap := normalizeStringMap(input["env"])
+	if envMap == nil {
+		envMap = map[string]string{}
+	}
 	user := firstString(input["user"])
 
 	switch strings.TrimSpace(strings.ToLower(block.Name)) {
@@ -1254,7 +1257,7 @@ func localShellActionFromToolUse(block types.AnthropicContentBlock, mode config.
 			"command":           []string{"powershell", "-Command", command},
 			"timeout_ms":        timeoutMS,
 			"working_directory": emptyToNil(workingDirectory),
-			"env":               emptyMapToNil(envMap),
+			"env":               envMap,
 			"user":              emptyToNil(user),
 		}), nil
 	default:
@@ -1263,7 +1266,7 @@ func localShellActionFromToolUse(block types.AnthropicContentBlock, mode config.
 			"command":           []string{"bash", "-lc", command},
 			"timeout_ms":        timeoutMS,
 			"working_directory": emptyToNil(workingDirectory),
-			"env":               emptyMapToNil(envMap),
+			"env":               envMap,
 			"user":              emptyToNil(user),
 		}), nil
 	}

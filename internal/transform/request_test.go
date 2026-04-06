@@ -326,6 +326,13 @@ func TestToolUseMapsBashToLocalShellCallAndToolSearchToToolSearchCall(t *testing
 	if items[0].Type != "local_shell_call" || string(items[0].Action) == "" {
 		t.Fatalf("expected local_shell_call mapping, got %#v", items[0])
 	}
+	var action map[string]any
+	if err := json.Unmarshal(items[0].Action, &action); err != nil {
+		t.Fatalf("failed to decode local_shell action: %v", err)
+	}
+	if _, ok := action["env"].(map[string]any); !ok {
+		t.Fatalf("expected local_shell action env object, got %#v", action)
+	}
 	if items[1].Type != "tool_search_call" || string(items[1].Arguments) == "" {
 		t.Fatalf("expected tool_search_call mapping, got %#v", items[1])
 	}
