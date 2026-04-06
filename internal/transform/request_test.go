@@ -88,8 +88,8 @@ func TestTransformAnthropicToOpenAIAppliesPassthroughFields(t *testing.T) {
 		t.Fatalf("TransformAnthropicToOpenAI() error = %v", err)
 	}
 
-	if oa.Metadata["trace_id"] != "trace-123" {
-		t.Fatalf("expected metadata to be forwarded, got %#v", oa.Metadata)
+	if oa.Metadata != nil {
+		t.Fatalf("expected metadata to stay local and not be forwarded, got %#v", oa.Metadata)
 	}
 	if oa.ServiceTier != "flex" {
 		t.Fatalf("expected service_tier passthrough to override speed mapping, got %q", oa.ServiceTier)

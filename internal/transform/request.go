@@ -138,10 +138,12 @@ func TransformAnthropicToOpenAI(req types.AnthropicMessageRequest, mode config.M
 		MaxOutputTokens: &req.MaxTokens,
 		Temperature:     req.Temperature,
 		TopP:            req.TopP,
-		Metadata:        req.Metadata,
 		Stream:          req.Stream,
 		Store:           &storeTrue,
 	}
+	// 不把 Anthropic metadata 原样转发到上游。
+	// 一些兼容代理会在携带 metadata 时卡住或返回 5xx。
+	// 这些 metadata 仍可在 bridge 内部用于 prompt_cache_key 推导等本地逻辑。
 	if os.Getenv("DISABLE_RESPONSE_STORAGE") != "" {
 		storeFalse := false
 		oa.Store = &storeFalse
