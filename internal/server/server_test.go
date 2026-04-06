@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -259,6 +260,125 @@ func TestHandleMessagesRetriesWithoutPromptCacheRetentionWhenUnsupported(t *test
 	}
 	if attempts != 2 {
 		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestHandleMessagesRetriesWithoutPromptCacheFieldsOnOpaqueUpstreamError(t *testing.T) {
+	var attempts int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		_ = json.Unmarshal(body, &payload)
+		if attempts == 1 {
+			if _, ok := payload["prompt_cache_key"]; !ok {
+				t.Fatalf("expected first attempt to include prompt_cache_key, got %#v", payload)
+			}
+			if payload["prompt_cache_retention"] != "24h" {
+				t.Fatalf("expected first attempt to include 24h retention, got %#v", payload["prompt_cache_retention"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`))
+			return
+		}
+		if _, ok := payload["prompt_cache_key"]; ok {
+			t.Fatalf("expected retry without prompt_cache_key, got %#v", payload)
+		}
+		if _, ok := payload["prompt_cache_retention"]; ok {
+			t.Fatalf("expected retry without prompt_cache_retention, got %#v", payload)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"resp_opaque_retry","model":"gpt-5.4","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":10,"output_tokens":2},"status":"completed"}`))
+	}))
+	defer upstream.Close()
+
+	srv := newTestServer(t, upstream.URL, map[string]config.ModelMapping{
+		"claude-sonnet-4-6": {UpstreamModel: "gpt-5.4"},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":128,
+		"metadata":{"user_id":"{\"device_id\":\"dev_retry\",\"session_id\":\"sess_retry\"}"},
+		"messages":[{"role":"user","content":"hello"}]
+	}`))
+	req.Header.Set("Authorization", "Bearer "+srv.rtCfg.GetAuthToken())
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "claude-code/test")
+
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestHandleMessagesStreamRetriesWithoutPromptCacheFieldsOnOpaqueUpstreamError(t *testing.T) {
+	var attempts int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		_ = json.Unmarshal(body, &payload)
+		if attempts == 1 {
+			if _, ok := payload["prompt_cache_key"]; !ok {
+				t.Fatalf("expected first attempt to include prompt_cache_key, got %#v", payload)
+			}
+			if payload["prompt_cache_retention"] != "24h" {
+				t.Fatalf("expected first attempt to include 24h retention, got %#v", payload["prompt_cache_retention"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"error":{"message":"Upstream request failed","type":"upstream_error"}}`))
+			return
+		}
+		if _, ok := payload["prompt_cache_key"]; ok {
+			t.Fatalf("expected retry without prompt_cache_key, got %#v", payload)
+		}
+		if _, ok := payload["prompt_cache_retention"]; ok {
+			t.Fatalf("expected retry without prompt_cache_retention, got %#v", payload)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "event: response.completed\ndata: %s\n\n", `{"type":"response.completed","response":{"id":"resp_stream_retry","model":"gpt-5.4","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":10,"output_tokens":2},"status":"completed"}}`)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}))
+	defer upstream.Close()
+
+	srv := newTestServer(t, upstream.URL, map[string]config.ModelMapping{
+		"claude-sonnet-4-6": {UpstreamModel: "gpt-5.4"},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":128,
+		"stream":true,
+		"metadata":{"user_id":"{\"device_id\":\"dev_stream_retry\",\"session_id\":\"sess_stream_retry\"}"},
+		"messages":[{"role":"user","content":"hello"}]
+	}`))
+	req.Header.Set("Authorization", "Bearer "+srv.rtCfg.GetAuthToken())
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "claude-code/test")
+
+	rec := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+	if !strings.Contains(rec.Body.String(), `"message_stop"`) {
+		t.Fatalf("expected bridged stream output, got %s", rec.Body.String())
 	}
 }
 

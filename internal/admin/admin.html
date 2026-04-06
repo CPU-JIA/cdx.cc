@@ -496,11 +496,21 @@
         </div>
         <div class="form-row">
           <label>自动键</label>
-          <label style="display:flex;align-items:center;gap:8px;margin:0">
-            <input type="checkbox" id="promptCacheAutoKey" />
-            自动生成 prompt_cache_key
-          </label>
-          <button class="btn btn-sm" id="btnSavePromptCache">保存</button>
+          <div
+            style="
+              display: flex;
+              flex: 1 1 auto;
+              flex-direction: column;
+              align-items: flex-start;
+              gap: 10px;
+            "
+          >
+            <label style="display:flex;align-items:center;gap:8px;margin:0">
+              <input type="checkbox" id="promptCacheAutoKey" />
+              自动生成 prompt_cache_key
+            </label>
+            <button class="btn btn-sm" id="btnSavePromptCache">保存</button>
+          </div>
         </div>
         <p class="sub-label" style="margin-left: 92px; margin-bottom: 8px">
           off = 不自动注入；auto = 检测到缓存条件时注入；force_24h = 默认强制

@@ -230,18 +230,22 @@ func (s *Server) handleResponsesCompact(w http.ResponseWriter, r *http.Request) 
 
 	body = s.rewriteOpenAIRequestBody(body, r)
 	headers := s.forwardPassthroughHeaders(r)
-	resp, data, err := s.upstream.DoJSON(r.Context(), "/v1/responses/compact", json.RawMessage(body), headers)
-	if err != nil {
-		s.writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if shouldRetryWithoutPromptCacheRetention(resp.StatusCode, data, extractPromptCacheRetention(body)) {
-		body = clearPromptCacheRetention(body)
+	var (
+		resp *http.Response
+		data []byte
+	)
+	for attempts := 0; attempts < 3; attempts++ {
 		resp, data, err = s.upstream.DoJSON(r.Context(), "/v1/responses/compact", json.RawMessage(body), headers)
 		if err != nil {
 			s.writeErrorWithType(w, http.StatusBadGateway, "api_error", err.Error(), "")
 			return
 		}
+		var stripped bool
+		body, stripped = stripUnsupportedPromptCacheFieldsFromBody(resp.StatusCode, data, body)
+		if stripped {
+			continue
+		}
+		break
 	}
 
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -258,18 +262,23 @@ func (s *Server) handleResponsesCompact(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *http.Request, oaReq types.OpenAIResponsesRequest, requestModel string) {
 	headers := s.forwardHeaders(r)
-	resp, data, err := s.upstream.DoJSON(ctx, "/v1/responses", oaReq, headers)
-	if err != nil {
-		s.writeErrorWithType(w, http.StatusBadGateway, "api_error", err.Error(), "")
-		return
-	}
-	if shouldRetryWithoutPromptCacheRetention(resp.StatusCode, data, oaReq.PromptCacheRetention) {
-		oaReq.PromptCacheRetention = ""
+	var (
+		resp *http.Response
+		data []byte
+		err  error
+	)
+	for attempts := 0; attempts < 3; attempts++ {
 		resp, data, err = s.upstream.DoJSON(ctx, "/v1/responses", oaReq, headers)
 		if err != nil {
 			s.writeErrorWithType(w, http.StatusBadGateway, "api_error", err.Error(), "")
 			return
 		}
+		var stripped bool
+		oaReq, stripped = stripUnsupportedPromptCacheFieldsFromRequest(resp.StatusCode, data, oaReq)
+		if stripped {
+			continue
+		}
+		break
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		s.writeUpstreamError(w, resp.StatusCode, data, upstreamRequestID(resp.Header))
@@ -320,11 +329,21 @@ func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *htt
 	headers := s.forwardHeaders(r)
 	oaReq.Stream = true
 
-	resp, err := s.upstream.DoStream(ctx, "/v1/responses", oaReq, headers)
-	if err != nil {
-		if resp != nil && shouldRetryWithoutPromptCacheRetentionFromErr(resp.StatusCode, err.Error(), oaReq.PromptCacheRetention) {
-			oaReq.PromptCacheRetention = ""
-			resp, err = s.upstream.DoStream(ctx, "/v1/responses", oaReq, headers)
+	var (
+		resp *http.Response
+		err  error
+	)
+	for attempts := 0; attempts < 3; attempts++ {
+		resp, err = s.upstream.DoStream(ctx, "/v1/responses", oaReq, headers)
+		if err == nil {
+			break
+		}
+		var stripped bool
+		if resp != nil {
+			oaReq, stripped = stripUnsupportedPromptCacheFieldsFromStreamError(resp.StatusCode, err.Error(), oaReq)
+		}
+		if stripped {
+			continue
 		}
 	}
 	if err != nil {
@@ -670,6 +689,26 @@ func shouldRetryWithoutPromptCacheRetentionFromErr(status int, errText, retentio
 	return promptCacheRetentionUnsupported(strings.ToLower(strings.TrimSpace(errText)))
 }
 
+func shouldRetryWithoutPromptCacheKey(status int, body []byte, key string) bool {
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity && status != http.StatusNotImplemented {
+		return false
+	}
+	return promptCacheKeyUnsupported(strings.ToLower(strings.TrimSpace(string(body))))
+}
+
+func shouldRetryWithoutPromptCacheKeyFromErr(status int, errText, key string) bool {
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity && status != http.StatusNotImplemented {
+		return false
+	}
+	return promptCacheKeyUnsupported(strings.ToLower(strings.TrimSpace(errText)))
+}
+
 func promptCacheRetentionUnsupported(text string) bool {
 	if !strings.Contains(text, "prompt_cache_retention") {
 		return false
@@ -678,6 +717,24 @@ func promptCacheRetentionUnsupported(text string) bool {
 		strings.Contains(text, "unsupported") ||
 		strings.Contains(text, "unknown") ||
 		strings.Contains(text, "invalid")
+}
+
+func promptCacheKeyUnsupported(text string) bool {
+	if !strings.Contains(text, "prompt_cache_key") {
+		return false
+	}
+	return strings.Contains(text, "not supported") ||
+		strings.Contains(text, "unsupported") ||
+		strings.Contains(text, "unknown") ||
+		strings.Contains(text, "invalid")
+}
+
+func shouldRetryWithoutPromptCacheOnOpaqueUpstreamFailure(status int, text string, hasKey, hasRetention bool) bool {
+	if (!hasKey && !hasRetention) || status != http.StatusBadGateway {
+		return false
+	}
+	text = strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(text, "upstream_error") || strings.Contains(text, "upstream request failed")
 }
 
 func extractPromptCacheRetention(body []byte) string {
@@ -712,6 +769,19 @@ func extractPromptCacheKey(body []byte) string {
 	return strings.TrimSpace(key)
 }
 
+func clearPromptCacheKey(body []byte) []byte {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return body
+	}
+	delete(raw, "prompt_cache_key")
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return body
+	}
+	return data
+}
+
 func clearPromptCacheRetention(body []byte) []byte {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -723,6 +793,60 @@ func clearPromptCacheRetention(body []byte) []byte {
 		return body
 	}
 	return data
+}
+
+func stripUnsupportedPromptCacheFieldsFromRequest(status int, body []byte, req types.OpenAIResponsesRequest) (types.OpenAIResponsesRequest, bool) {
+	var stripped bool
+	if shouldRetryWithoutPromptCacheOnOpaqueUpstreamFailure(status, string(body), strings.TrimSpace(req.PromptCacheKey) != "", strings.TrimSpace(req.PromptCacheRetention) != "") {
+		req.PromptCacheKey = ""
+		req.PromptCacheRetention = ""
+		return req, true
+	}
+	if shouldRetryWithoutPromptCacheKey(status, body, req.PromptCacheKey) {
+		req.PromptCacheKey = ""
+		stripped = true
+	}
+	if shouldRetryWithoutPromptCacheRetention(status, body, req.PromptCacheRetention) {
+		req.PromptCacheRetention = ""
+		stripped = true
+	}
+	return req, stripped
+}
+
+func stripUnsupportedPromptCacheFieldsFromStreamError(status int, errText string, req types.OpenAIResponsesRequest) (types.OpenAIResponsesRequest, bool) {
+	var stripped bool
+	if shouldRetryWithoutPromptCacheOnOpaqueUpstreamFailure(status, errText, strings.TrimSpace(req.PromptCacheKey) != "", strings.TrimSpace(req.PromptCacheRetention) != "") {
+		req.PromptCacheKey = ""
+		req.PromptCacheRetention = ""
+		return req, true
+	}
+	if shouldRetryWithoutPromptCacheKeyFromErr(status, errText, req.PromptCacheKey) {
+		req.PromptCacheKey = ""
+		stripped = true
+	}
+	if shouldRetryWithoutPromptCacheRetentionFromErr(status, errText, req.PromptCacheRetention) {
+		req.PromptCacheRetention = ""
+		stripped = true
+	}
+	return req, stripped
+}
+
+func stripUnsupportedPromptCacheFieldsFromBody(status int, responseBody, requestBody []byte) ([]byte, bool) {
+	var stripped bool
+	if shouldRetryWithoutPromptCacheOnOpaqueUpstreamFailure(status, string(responseBody), strings.TrimSpace(extractPromptCacheKey(requestBody)) != "", strings.TrimSpace(extractPromptCacheRetention(requestBody)) != "") {
+		requestBody = clearPromptCacheKey(requestBody)
+		requestBody = clearPromptCacheRetention(requestBody)
+		return requestBody, true
+	}
+	if shouldRetryWithoutPromptCacheKey(status, responseBody, extractPromptCacheKey(requestBody)) {
+		requestBody = clearPromptCacheKey(requestBody)
+		stripped = true
+	}
+	if shouldRetryWithoutPromptCacheRetention(status, responseBody, extractPromptCacheRetention(requestBody)) {
+		requestBody = clearPromptCacheRetention(requestBody)
+		stripped = true
+	}
+	return requestBody, stripped
 }
 
 func (s *Server) backfillCacheUsage(usage *types.AnthropicUsage, cachedTokens int, retention string) {
