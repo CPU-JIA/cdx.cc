@@ -450,6 +450,69 @@
         </div>
       </section>
 
+      <!-- 自动压缩 -->
+      <section>
+        <h2>自动压缩</h2>
+        <div class="form-row">
+          <label>模式</label>
+          <select id="autoCompactMode">
+            <option value="off">关闭</option>
+            <option value="context_management">context_management</option>
+            <option value="responses_compact">/responses/compact</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>阈值</label>
+          <input
+            type="number"
+            id="autoCompactThreshold"
+            min="1"
+            step="1"
+            placeholder="例如 180000"
+          />
+          <button class="btn btn-sm" id="btnSaveAutoCompact">保存</button>
+        </div>
+        <p class="sub-label" style="margin-left: 92px; margin-bottom: 8px">
+          到达阈值后自动压缩历史。context_management 依赖上游协议支持；
+          /responses/compact 会由 bridge 主动调用 Codex/OpenAI 远程压缩端点。
+        </p>
+        <p
+          class="sub-label"
+          id="autoCompactHint"
+          style="margin-left: 92px; margin-bottom: 0"
+        ></p>
+      </section>
+
+      <!-- Prompt Cache -->
+      <section>
+        <h2>Prompt Cache</h2>
+        <div class="form-row">
+          <label>策略</label>
+          <select id="promptCacheMode">
+            <option value="off">关闭</option>
+            <option value="auto">auto</option>
+            <option value="force_24h">force_24h</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>自动键</label>
+          <label style="display:flex;align-items:center;gap:8px;margin:0">
+            <input type="checkbox" id="promptCacheAutoKey" />
+            自动生成 prompt_cache_key
+          </label>
+          <button class="btn btn-sm" id="btnSavePromptCache">保存</button>
+        </div>
+        <p class="sub-label" style="margin-left: 92px; margin-bottom: 8px">
+          off = 不自动注入；auto = 检测到缓存条件时注入；force_24h = 默认强制
+          24h retention。
+        </p>
+        <p
+          class="sub-label"
+          id="promptCacheHint"
+          style="margin-left: 92px; margin-bottom: 0"
+        ></p>
+      </section>
+
       <!-- 连接配置 -->
       <section>
         <h2>连接配置</h2>
@@ -788,6 +851,38 @@
           code.textContent = text;
         }
 
+        function renderAutoCompactHint() {
+          var mode = $("autoCompactMode").value;
+          var hint = $("autoCompactHint");
+          if (mode === "context_management") {
+            hint.textContent =
+              "由 bridge 在超阈值时注入 context_management.compaction 阈值。";
+          } else if (mode === "responses_compact") {
+            hint.textContent =
+              "由 bridge 在超阈值时先调用 /v1/responses/compact，再继续正式请求。";
+          } else {
+            hint.textContent = "关闭后不会自动触发任何服务端/远程压缩。";
+          }
+        }
+
+        function renderPromptCacheHint() {
+          var mode = $("promptCacheMode").value || "force_24h";
+          var autoKey = $("promptCacheAutoKey").checked;
+          var hint = $("promptCacheHint");
+          if (mode === "off") {
+            hint.textContent =
+              "不自动注入 prompt_cache_retention；仅保留客户端显式传入的缓存字段。";
+          } else if (mode === "auto") {
+            hint.textContent =
+              "检测到可复用缓存条件时才注入 retention；" +
+              (autoKey ? "会自动生成 prompt_cache_key。" : "不会自动生成 prompt_cache_key。");
+          } else {
+            hint.textContent =
+              "默认强制 24h retention；" +
+              (autoKey ? "会自动生成稳定 prompt_cache_key。" : "不会自动生成 prompt_cache_key。");
+          }
+        }
+
         function loadConfig() {
           fetch("/admin/api/config")
             .then(function (resp) {
@@ -807,6 +902,16 @@
               currentAdminPassword = data.admin_password || "";
               $("adminPassword").value = currentAdminPassword;
               $("serviceUrl").value = data.service_url || "";
+              $("autoCompactMode").value =
+                (data.auto_compact && data.auto_compact.mode) || "off";
+              $("autoCompactThreshold").value =
+                (data.auto_compact && data.auto_compact.threshold_tokens) || "";
+              $("promptCacheMode").value =
+                (data.prompt_cache && data.prompt_cache.mode) || "force_24h";
+              $("promptCacheAutoKey").checked =
+                !data.prompt_cache || data.prompt_cache.auto_key !== false;
+              renderAutoCompactHint();
+              renderPromptCacheHint();
               renderSnippet();
 
               var tbody = $("modelRows");
@@ -918,6 +1023,66 @@
             });
         }
 
+        function saveAutoCompact() {
+          var mode = $("autoCompactMode").value || "off";
+          var thresholdText = $("autoCompactThreshold").value.trim();
+          var threshold = thresholdText ? parseInt(thresholdText, 10) : 0;
+
+          if (mode !== "off" && (!threshold || threshold <= 0)) {
+            toast("启用自动压缩时，阈值必须是正整数", "error");
+            return;
+          }
+
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              auto_compact: {
+                mode: mode,
+                threshold_tokens: threshold,
+              },
+            }),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("自动压缩设置已保存", "success");
+              loadConfig();
+            })
+            .catch(function (e) {
+              toast("保存失败: " + e.message, "error");
+            });
+        }
+
+        function savePromptCache() {
+          var mode = $("promptCacheMode").value || "force_24h";
+          var autoKey = $("promptCacheAutoKey").checked;
+
+          fetch("/admin/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt_cache: {
+                mode: mode,
+                auto_key: autoKey,
+              },
+            }),
+          })
+            .then(function (resp) {
+              if (!resp.ok)
+                return resp.text().then(function (t) {
+                  throw new Error(t || "HTTP " + resp.status);
+                });
+              toast("Prompt Cache 设置已保存", "success");
+              loadConfig();
+            })
+            .catch(function (e) {
+              toast("保存失败: " + e.message, "error");
+            });
+        }
+
         function generateNewToken() {
           var arr = new Uint8Array(8);
           crypto.getRandomValues(arr);
@@ -1003,6 +1168,8 @@
           addRow();
         });
         $("btnSaveModels").addEventListener("click", saveModels);
+        $("btnSaveAutoCompact").addEventListener("click", saveAutoCompact);
+        $("btnSavePromptCache").addEventListener("click", savePromptCache);
         $("btnCopyToken").addEventListener("click", function () {
           copyText(currentAuthToken);
         });
@@ -1033,6 +1200,9 @@
               toast("保存失败: " + e.message, "error");
             });
         });
+        $("autoCompactMode").addEventListener("change", renderAutoCompactHint);
+        $("promptCacheMode").addEventListener("change", renderPromptCacheHint);
+        $("promptCacheAutoKey").addEventListener("change", renderPromptCacheHint);
         $("serviceUrl").addEventListener("input", renderSnippet);
         $("btnLogout").addEventListener("click", function () {
           fetch("/admin/logout", { method: "POST", redirect: "manual" }).then(

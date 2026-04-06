@@ -15,6 +15,22 @@ const (
 	ModeBestEffort Mode = "best_effort"
 )
 
+type AutoCompactMode string
+
+const (
+	AutoCompactOff               AutoCompactMode = "off"
+	AutoCompactContextManagement AutoCompactMode = "context_management"
+	AutoCompactResponsesCompact  AutoCompactMode = "responses_compact"
+)
+
+type PromptCacheMode string
+
+const (
+	PromptCacheOff      PromptCacheMode = "off"
+	PromptCacheAuto     PromptCacheMode = "auto"
+	PromptCacheForce24H PromptCacheMode = "force_24h"
+)
+
 const (
 	defaultListenAddr      = ":8787"
 	defaultTimeoutSecs     = 120
@@ -43,6 +59,25 @@ type Config struct {
 	ModelMap        map[string]ModelMapping // 入站模型名 → 映射规则
 	ContextLimit    int                     // 上下文窗口大小（token 数）
 	OutputLimit     int                     // 最大输出 token 数
+	AutoCompact     AutoCompactConfig
+	PromptCache     PromptCacheConfig
+}
+
+type AutoCompactConfig struct {
+	Mode            AutoCompactMode `json:"mode,omitempty"`
+	ThresholdTokens int             `json:"threshold_tokens,omitempty"`
+}
+
+type PromptCacheConfig struct {
+	Mode    PromptCacheMode `json:"mode,omitempty"`
+	AutoKey bool            `json:"auto_key,omitempty"`
+}
+
+func DefaultPromptCacheConfig() PromptCacheConfig {
+	return PromptCacheConfig{
+		Mode:    PromptCacheForce24H,
+		AutoKey: true,
+	}
 }
 
 func Load() (Config, error) {
@@ -86,6 +121,23 @@ func Load() (Config, error) {
 	cfg.OutputLimit = defaultOutputLimit
 	if v, err := strconv.Atoi(os.Getenv("OUTPUT_LIMIT")); err == nil && v > 0 {
 		cfg.OutputLimit = v
+	}
+
+	cfg.AutoCompact = AutoCompactConfig{
+		Mode: normalizeAutoCompactMode(os.Getenv("AUTO_COMPACT_MODE")),
+	}
+	if v, err := strconv.Atoi(os.Getenv("AUTO_COMPACT_THRESHOLD_TOKENS")); err == nil && v > 0 {
+		cfg.AutoCompact.ThresholdTokens = v
+	}
+	if err := ValidateAutoCompact(cfg.AutoCompact); err != nil {
+		return Config{}, err
+	}
+
+	cfg.PromptCache = DefaultPromptCacheConfig()
+	cfg.PromptCache.Mode = normalizePromptCacheMode(getenv("PROMPT_CACHE_MODE", string(cfg.PromptCache.Mode)))
+	cfg.PromptCache.AutoKey = getenvBool("PROMPT_CACHE_AUTO_KEY", cfg.PromptCache.AutoKey)
+	if err := ValidatePromptCache(cfg.PromptCache); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil
@@ -136,4 +188,69 @@ func getenv(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func getenvBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	switch raw {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func normalizeAutoCompactMode(raw string) AutoCompactMode {
+	switch AutoCompactMode(strings.TrimSpace(strings.ToLower(raw))) {
+	case "", AutoCompactOff:
+		return AutoCompactOff
+	case AutoCompactContextManagement:
+		return AutoCompactContextManagement
+	case AutoCompactResponsesCompact:
+		return AutoCompactResponsesCompact
+	default:
+		return AutoCompactMode(strings.TrimSpace(strings.ToLower(raw)))
+	}
+}
+
+func ValidateAutoCompact(cfg AutoCompactConfig) error {
+	cfg.Mode = normalizeAutoCompactMode(string(cfg.Mode))
+	switch cfg.Mode {
+	case AutoCompactOff:
+		return nil
+	case AutoCompactContextManagement, AutoCompactResponsesCompact:
+		if cfg.ThresholdTokens <= 0 {
+			return errors.New("AUTO_COMPACT_THRESHOLD_TOKENS must be a positive integer when auto compact is enabled")
+		}
+		return nil
+	default:
+		return errors.New("AUTO_COMPACT_MODE must be off, context_management, or responses_compact")
+	}
+}
+
+func normalizePromptCacheMode(raw string) PromptCacheMode {
+	switch PromptCacheMode(strings.TrimSpace(strings.ToLower(raw))) {
+	case "", PromptCacheForce24H:
+		return PromptCacheForce24H
+	case PromptCacheOff:
+		return PromptCacheOff
+	case PromptCacheAuto:
+		return PromptCacheAuto
+	default:
+		return PromptCacheMode(strings.TrimSpace(strings.ToLower(raw)))
+	}
+}
+
+func ValidatePromptCache(cfg PromptCacheConfig) error {
+	cfg.Mode = normalizePromptCacheMode(string(cfg.Mode))
+	switch cfg.Mode {
+	case PromptCacheOff, PromptCacheAuto, PromptCacheForce24H:
+		return nil
+	default:
+		return errors.New("PROMPT_CACHE_MODE must be off, auto, or force_24h")
+	}
 }

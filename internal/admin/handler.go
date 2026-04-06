@@ -208,6 +208,8 @@ type configResponse struct {
 	AuthToken     string                         `json:"auth_token"`
 	AdminPassword string                         `json:"admin_password"`
 	ServiceURL    string                         `json:"service_url"`
+	AutoCompact   config.AutoCompactConfig       `json:"auto_compact,omitempty"`
+	PromptCache   config.PromptCacheConfig       `json:"prompt_cache,omitempty"`
 }
 
 type upstreamResponse struct {
@@ -222,6 +224,8 @@ type configRequest struct {
 	AuthToken     *string                        `json:"auth_token,omitempty"`     // nil=不修改
 	AdminPassword *string                        `json:"admin_password,omitempty"` // nil=不修改
 	ServiceURL    *string                        `json:"service_url,omitempty"`    // nil=不修改
+	AutoCompact   *config.AutoCompactConfig      `json:"auto_compact,omitempty"`
+	PromptCache   *config.PromptCacheConfig      `json:"prompt_cache,omitempty"`
 }
 
 type upstreamRequest struct {
@@ -241,6 +245,8 @@ func (h *Handler) getConfig(w http.ResponseWriter, r *http.Request) {
 		AuthToken:     data.AuthToken,
 		AdminPassword: data.AdminPassword,
 		ServiceURL:    data.ServiceURL,
+		AutoCompact:   data.AutoCompact,
+		PromptCache:   data.PromptCache,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -302,6 +308,12 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 	// 合并服务地址
 	if req.ServiceURL != nil {
 		current.ServiceURL = *req.ServiceURL
+	}
+	if req.AutoCompact != nil {
+		current.AutoCompact = *req.AutoCompact
+	}
+	if req.PromptCache != nil {
+		current.PromptCache = *req.PromptCache
 	}
 
 	if err := h.rtCfg.Update(current); err != nil {

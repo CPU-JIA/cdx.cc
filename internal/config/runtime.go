@@ -19,6 +19,8 @@ type RuntimeData struct {
 	AuthToken     string                  `json:"auth_token,omitempty"`     // 客户端 API 连接密钥
 	AdminPassword string                  `json:"admin_password,omitempty"` // 管理面板登录密码（独立于 AuthToken）
 	ServiceURL    string                  `json:"service_url,omitempty"`    // 对外访问地址（如 https://cdx.cc）
+	AutoCompact   AutoCompactConfig       `json:"auto_compact,omitempty"`
+	PromptCache   PromptCacheConfig       `json:"prompt_cache,omitempty"`
 }
 
 // UpstreamConfig 上游服务配置
@@ -44,7 +46,9 @@ func NewRuntimeConfig(cfg Config, filePath string) (*RuntimeConfig, error) {
 				BaseURL: cfg.UpstreamBaseURL,
 				APIKey:  cfg.UpstreamAPIKey,
 			},
-			Models: cfg.ModelMap,
+			Models:      cfg.ModelMap,
+			AutoCompact: cfg.AutoCompact,
+			PromptCache: cfg.PromptCache,
 		},
 	}
 
@@ -56,6 +60,20 @@ func NewRuntimeConfig(cfg Config, filePath string) (*RuntimeConfig, error) {
 	// JSON 文件存在则覆盖环境变量的值
 	if err := rc.loadFromFile(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	if strings.TrimSpace(string(rc.data.PromptCache.Mode)) == "" && !rc.data.PromptCache.AutoKey {
+		rc.data.PromptCache = cfg.PromptCache
+		if strings.TrimSpace(string(rc.data.PromptCache.Mode)) == "" {
+			rc.data.PromptCache = DefaultPromptCacheConfig()
+		}
+	}
+	rc.data.AutoCompact.Mode = normalizeAutoCompactMode(string(rc.data.AutoCompact.Mode))
+	if err := ValidateAutoCompact(rc.data.AutoCompact); err != nil {
+		return nil, fmt.Errorf("invalid auto_compact config: %w", err)
+	}
+	rc.data.PromptCache.Mode = normalizePromptCacheMode(string(rc.data.PromptCache.Mode))
+	if err := ValidatePromptCache(rc.data.PromptCache); err != nil {
+		return nil, fmt.Errorf("invalid prompt_cache config: %w", err)
 	}
 
 	// 安全校验：AuthToken 为空或与上游 API Key 相同时自动重新生成
@@ -93,6 +111,8 @@ func (rc *RuntimeConfig) Get() RuntimeData {
 		AuthToken:     rc.data.AuthToken,
 		AdminPassword: rc.data.AdminPassword,
 		ServiceURL:    rc.data.ServiceURL,
+		AutoCompact:   rc.data.AutoCompact,
+		PromptCache:   rc.data.PromptCache,
 	}
 	if rc.data.Models != nil {
 		snapshot.Models = make(map[string]ModelMapping, len(rc.data.Models))
@@ -139,6 +159,18 @@ func (rc *RuntimeConfig) GetAdminPassword() string {
 	return rc.data.AdminPassword
 }
 
+func (rc *RuntimeConfig) GetAutoCompact() AutoCompactConfig {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.data.AutoCompact
+}
+
+func (rc *RuntimeConfig) GetPromptCache() PromptCacheConfig {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return rc.data.PromptCache
+}
+
 // Update 原子更新配置并持久化到 JSON 文件
 func (rc *RuntimeConfig) Update(data RuntimeData) error {
 	data.Upstream.BaseURL = strings.TrimRight(strings.TrimSpace(data.Upstream.BaseURL), "/")
@@ -146,6 +178,14 @@ func (rc *RuntimeConfig) Update(data RuntimeData) error {
 		return errors.New("upstream base URL cannot be empty")
 	}
 	data.ServiceURL = strings.TrimRight(strings.TrimSpace(data.ServiceURL), "/")
+	data.AutoCompact.Mode = normalizeAutoCompactMode(string(data.AutoCompact.Mode))
+	if err := ValidateAutoCompact(data.AutoCompact); err != nil {
+		return err
+	}
+	data.PromptCache.Mode = normalizePromptCacheMode(string(data.PromptCache.Mode))
+	if err := ValidatePromptCache(data.PromptCache); err != nil {
+		return err
+	}
 
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
@@ -184,6 +224,12 @@ func (rc *RuntimeConfig) loadFromFile() error {
 	}
 	if data.ServiceURL != "" {
 		rc.data.ServiceURL = strings.TrimRight(data.ServiceURL, "/")
+	}
+	if data.AutoCompact.Mode != "" || data.AutoCompact.ThresholdTokens > 0 {
+		rc.data.AutoCompact = data.AutoCompact
+	}
+	if data.PromptCache.Mode != "" || data.PromptCache.AutoKey {
+		rc.data.PromptCache = data.PromptCache
 	}
 
 	return nil
