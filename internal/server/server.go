@@ -275,9 +275,6 @@ func (s *Server) handleNonStream(ctx context.Context, w http.ResponseWriter, r *
 		}
 		var stripped bool
 		oaReq, stripped = stripUnsupportedPromptCacheFieldsFromRequest(resp.StatusCode, data, oaReq)
-		if !stripped {
-			oaReq, stripped = stripReasoningOnAccountExhaustion(resp.StatusCode, data, oaReq)
-		}
 		if stripped {
 			continue
 		}
@@ -344,9 +341,6 @@ func (s *Server) handleStream(ctx context.Context, w http.ResponseWriter, r *htt
 		var stripped bool
 		if resp != nil {
 			oaReq, stripped = stripUnsupportedPromptCacheFieldsFromStreamError(resp.StatusCode, err.Error(), oaReq)
-			if !stripped {
-				oaReq, stripped = stripReasoningOnAccountExhaustionFromErr(resp.StatusCode, err.Error(), oaReq)
-			}
 		}
 		if stripped {
 			continue
@@ -743,17 +737,6 @@ func shouldRetryWithoutPromptCacheOnOpaqueUpstreamFailure(status int, text strin
 	return strings.Contains(text, "upstream_error") || strings.Contains(text, "upstream request failed")
 }
 
-func shouldRetryWithoutReasoningOnAccountExhaustion(status int, text string, reasoning *types.OpenAIReasoning) bool {
-	if reasoning == nil {
-		return false
-	}
-	if status != http.StatusBadGateway && status != http.StatusServiceUnavailable {
-		return false
-	}
-	text = strings.ToLower(strings.TrimSpace(text))
-	return strings.Contains(text, "account") || strings.Contains(text, "exhaust")
-}
-
 func extractPromptCacheRetention(body []byte) string {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -864,22 +847,6 @@ func stripUnsupportedPromptCacheFieldsFromBody(status int, responseBody, request
 		stripped = true
 	}
 	return requestBody, stripped
-}
-
-func stripReasoningOnAccountExhaustion(status int, body []byte, req types.OpenAIResponsesRequest) (types.OpenAIResponsesRequest, bool) {
-	if shouldRetryWithoutReasoningOnAccountExhaustion(status, string(body), req.Reasoning) {
-		req.Reasoning = nil
-		return req, true
-	}
-	return req, false
-}
-
-func stripReasoningOnAccountExhaustionFromErr(status int, errText string, req types.OpenAIResponsesRequest) (types.OpenAIResponsesRequest, bool) {
-	if shouldRetryWithoutReasoningOnAccountExhaustion(status, errText, req.Reasoning) {
-		req.Reasoning = nil
-		return req, true
-	}
-	return req, false
 }
 
 func (s *Server) backfillCacheUsage(usage *types.AnthropicUsage, cachedTokens int, retention string) {
