@@ -284,9 +284,6 @@ func normalizeSystem(raw json.RawMessage) (string, error) {
 		if block.Type != "text" {
 			return "", errors.New("system blocks must be text")
 		}
-		if block.CacheControl != nil {
-			log.Printf("WARN: stripping cache_control from system block")
-		}
 		parts = append(parts, block.Text)
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n")), nil
@@ -318,7 +315,6 @@ func messageToInputItems(msg types.AnthropicMessage, mode config.Mode, callKinds
 		switch block.Type {
 		case "thinking", "signature":
 			// 历史消息中的 thinking/signature 块 → 直接跳过（OpenAI 不需要）
-			log.Printf("WARN: stripping %s block from history message", block.Type)
 			continue
 		case "text":
 			if role == roleAssistant && isNonFinalAssistantPhase(block.Phase) {
